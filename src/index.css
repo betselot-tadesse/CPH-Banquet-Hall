@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #CFE5DC;
+    color: #192A24;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+}
+
+/* Custom Scrollbar for dashboard containers */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #A3C9B9;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #236B50;
+}
+
+/* Custom Print Rules for Invoices & A4 Banquet Event Orders (Download as PDF) */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  *, *:before, *:after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html, body {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Hide screen headers, navigations, sidebars, buttons, toolbars, and background elements */
+  header, 
+  nav, 
+  aside,
+  button, 
+  .print\:hidden, 
+  .no-print,
+  .print-hidden {
+    display: none !important;
+  }
+
+  /* When printing from the modal, hide background app canvas */
+  body:has(.a4-document-page) #root > div > div.flex > div.flex-1 > header,
+  body:has(.a4-document-page) #root > div > div.flex > div.flex-1 > main,
+  body:has(.a4-document-page) #root > div > div.flex > div.hidden {
+    display: none !important;
+  }
+
+  /* Clean up modal overlay for pure document print */
+  .a4-document-page {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+    display: block !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+
+  /* Prevent awkward table row splitting across pages */
+  tr, td, th {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        // Intercept Vite HMR WebSocket in AI Studio preview iframe sandbox
+        // In AI Studio, HMR is disabled ("HMR: Disabled. Ignore WebSocket errors.")
+        // Providing a safe mock for vite-hmr prevents connection rejection in @vite/client
+        var OriginalWebSocket = window.WebSocket;
+        if (OriginalWebSocket) {
+          window.WebSocket = function(url, protocols) {
+            var isViteHmr = protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
+            if (isViteHmr) {
+              return {
+                readyState: 1, // OPEN
+                OPEN: 1,
+                CLOSED: 3,
+                CLOSING: 2,
+                CONNECTING: 0,
+                url: String(url),
+                protocol: 'vite-hmr',
+                bufferedAmount: 0,
+                extensions: '',
+                binaryType: 'blob',
+                send: function() {},
+                close: function() {},
+                addEventListener: function(event, handler) {
+                  if (event === 'open') {
+                    setTimeout(function() { handler({ type: 'open' }); }, 0);
+                  }
+                },
+                removeEventListener: function() {},
+                dispatchEvent: function() { return true; },
+                onopen: null,
+                onmessage: null,
+                onerror: null,
+                onclose: null
+              };
+            }
+            return new OriginalWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OriginalWebSocket.prototype;
+          window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+          window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+          window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+          window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+        }
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var msg = reason ? (reason.message || String(reason)) : '';
+          var stack = reason ? (reason.stack || '') : '';
+          if (msg.indexOf('WebSocket') !== -1 || stack.indexOf('@vite/client') !== -1 || stack.indexOf('createWebSocketModuleRunnerTransport') !== -1) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          var msg = event.message || '';
+          var file = event.filename || '';
+          var stack = event.error ? (event.error.stack || '') : '';
+          if (msg.indexOf('WebSocket') !== -1 || file.indexOf('@vite/client') !== -1 || stack.indexOf('createWebSocketModuleRunnerTransport') !== -1) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
+    <title>AuraBanquets - Hotel Banquet & Food Costing Suite</title>
+    <meta name="description" content="Comprehensive hotel banquet hall costing, chef ingredient food costing, real-time profit margins, automated invoices, and encrypted records." />
+    <meta property="og:title" content="AuraBanquets - Hotel Banquet & Food Costing Suite" />
+    <meta property="og:description" content="Comprehensive hotel banquet hall costing, chef ingredient food costing, real-time profit margins, automated invoices, and encrypted records." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

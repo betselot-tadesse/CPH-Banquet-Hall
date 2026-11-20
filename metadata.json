@@ -1,0 +1,6 @@
+{
+  "name": "AuraBanquets - Hotel Banquet & Food Costing Suite",
+  "description": "Comprehensive hotel banquet hall costing, chef ingredient food costing, real-time profit margins, automated invoices, and encrypted records.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
