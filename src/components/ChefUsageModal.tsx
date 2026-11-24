@@ -37,11 +37,11 @@ export const ChefUsageModal: React.FC<ChefUsageModalProps> = ({
   ingredients,
   currentUser = {
     id: 'user_chef',
-    name: 'Chef Karim Zayani',
+    name: 'Executive Chef',
     role: 'executive_chef',
     title: 'Executive Head Chef',
-    email: 'chef.karim@crystalplazahotel.com',
-    avatar: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=150&auto=format&fit=crop&q=80',
+    email: 'executive.chef@crystalplazahotel.com',
+    avatar: '',
     pin: '2345',
     permissions: {
       canViewProfits: true,

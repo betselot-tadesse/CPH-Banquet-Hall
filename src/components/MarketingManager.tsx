@@ -137,7 +137,7 @@ export const MarketingManager: React.FC<MarketingManagerProps> = ({
   const [newLeadGuests, setNewLeadGuests] = useState(80);
   const [newLeadBudget, setNewLeadBudget] = useState(10000);
   const [newLeadSource, setNewLeadSource] = useState<LeadSource>('meta_instagram_ad');
-  const [newLeadHall, setNewLeadHall] = useState('Al Maha Grand Ballroom (1st Floor)');
+  const [newLeadHall, setNewLeadHall] = useState('First Floor Big Hall');
   const [newLeadMenu, setNewLeadMenu] = useState('Royal Wedding Feast (100 AED/pax)');
   const [newLeadNotes, setNewLeadNotes] = useState('');
 
@@ -446,7 +446,7 @@ export const MarketingManager: React.FC<MarketingManagerProps> = ({
       .replace(/{client_name}/g, lead.clientName)
       .replace(/{date}/g, lead.targetEventDate || 'your upcoming date')
       .replace(/{guests}/g, String(lead.estimatedGuests || 80))
-      .replace(/{hall_name}/g, lead.hallPreference || 'Crystal Plaza Grand Ballroom');
+      .replace(/{hall_name}/g, lead.hallPreference || 'First Floor Big Hall');
   };
 
   return (
@@ -941,7 +941,7 @@ export const MarketingManager: React.FC<MarketingManagerProps> = ({
                                 <span>~<strong>{lead.estimatedGuests}</strong> Guests</span>
                               </div>
                               <div className="text-[10px] text-[#5A6F66] truncate">
-                                Hall: {lead.hallPreference || 'Crystal Plaza Ballroom'}
+                                Hall: {lead.hallPreference || 'First Floor Big Hall'}
                               </div>
                             </div>
 
@@ -1420,9 +1420,8 @@ export const MarketingManager: React.FC<MarketingManagerProps> = ({
                     onChange={(e) => setNewLeadHall(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white"
                   >
-                    <option value="Al Maha Grand Ballroom (1st Floor)">Al Maha Grand Ballroom (1st Floor)</option>
-                    <option value="Al Dana Banquet Hall (2nd Floor)">Al Dana Banquet Hall (2nd Floor)</option>
-                    <option value="Casmia Banquet (Qasmia Branch)">Casmia Banquet (Qasmia Branch)</option>
+                    <option value="First Floor Big Hall">First Floor Big Hall</option>
+                    <option value="Suite room Hall">Suite room Hall</option>
                   </select>
                 </div>
               </div>

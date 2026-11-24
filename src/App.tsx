@@ -15,7 +15,8 @@ import {
   CostingWorkflowStatus,
   HotelBranch,
   MetaAdMonthlyReport,
-  NotificationItem
+  NotificationItem,
+  EventChecklistItem
 } from './types';
 import { AppStorage } from './services/storage';
 import { getBookingPaymentSummary, getFunctionProspectusFinancials, getLiveTodayInfo } from './utils/costCalculations';
@@ -30,6 +31,7 @@ import { ChefUsageModal } from './components/ChefUsageModal';
 import { BanquetPartyA4Sheet } from './components/BanquetPartyA4Sheet';
 import { MarketingManager } from './components/MarketingManager';
 import { QuickCashSettlementModal } from './components/QuickCashSettlementModal';
+import { AiAnalysisPanel } from './components/AiAnalysisPanel';
 import { 
   Building2, 
   Calendar, 
@@ -65,14 +67,21 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState<boolean>(false);
 
   // Global branch filter
-  const [selectedBranch, setSelectedBranch] = useState<HotelBranch | 'All'>('Crystal Plaza (CPH)');
+  const [selectedBranch, setSelectedBranch] = useState<HotelBranch | 'All'>('CPH1');
 
   // Mobile drawer state
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Global modals and routing targets
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
+  const [createBookingTrigger, setCreateBookingTrigger] = useState(false);
   const [chefUsageModalBooking, setChefUsageModalBooking] = useState<BookingEvent | null>(null);
+
+  const handleOpenNewBookingModal = () => {
+    setCreateBookingTrigger(true);
+    setActiveTab('bookings');
+    setBookingModalOpen(true);
+  };
   const [a4ModalBooking, setA4ModalBooking] = useState<BookingEvent | null>(null);
   const [a4InitialPage, setA4InitialPage] = useState<1 | 2 | 3 | undefined>(undefined);
   const [invoiceTargetBookingId, setInvoiceTargetBookingId] = useState<string | undefined>(undefined);
@@ -121,26 +130,26 @@ export default function App() {
 
     // Enforce clean role workspace boundaries matching Navbar
     if (user.role === 'general_manager') {
-      if (!['dashboard', 'reports'].includes(activeTab)) {
+      if (!['dashboard', 'reports', 'ai_analysis'].includes(activeTab)) {
         setActiveTab('dashboard');
       }
     } else if (user.role === 'executive_chef') {
-      if (!['dashboard', 'costing_required', 'bookings', 'costing', 'backups'].includes(activeTab)) {
+      if (!['dashboard', 'ai_analysis', 'costing_required', 'bookings', 'costing', 'backups'].includes(activeTab)) {
         setActiveTab('dashboard');
       }
     } else if (user.role === 'accounts_executive') {
-      if (!['dashboard', 'costing_required', 'bookings', 'costing', 'invoices', 'reports', 'backups'].includes(activeTab)) {
+      if (!['dashboard', 'ai_analysis', 'costing_required', 'bookings', 'costing', 'invoices', 'reports', 'backups'].includes(activeTab)) {
         setActiveTab('dashboard');
       }
     } else if (user.role === 'fnb_supervisor' || user.role === 'banquet_manager') {
       const allowed = user.role === 'fnb_supervisor'
-        ? ['dashboard', 'banquet_calendar', 'bookings', 'invoices', 'marketing_kpi']
-        : ['dashboard', 'banquet_calendar', 'bookings', 'invoices', 'marketing_kpi', 'guest_retargeting'];
+        ? ['dashboard', 'ai_analysis', 'banquet_calendar', 'bookings', 'invoices', 'marketing_kpi']
+        : ['dashboard', 'ai_analysis', 'banquet_calendar', 'bookings', 'invoices', 'marketing_kpi', 'guest_retargeting'];
       if (!allowed.includes(activeTab)) {
         setActiveTab('dashboard');
       }
     } else if (user.role === 'marketing_executive') {
-      if (!['dashboard', 'marketing', 'marketing_kpi', 'guest_retargeting', 'bookings', 'reports', 'backups'].includes(activeTab)) {
+      if (!['dashboard', 'ai_analysis', 'marketing', 'marketing_kpi', 'guest_retargeting', 'bookings', 'reports', 'backups'].includes(activeTab)) {
         setActiveTab('dashboard');
       }
     }
@@ -206,6 +215,47 @@ export default function App() {
     AppStorage.addAuditLog(
       'Deleted Banquet Booking',
       `Deleted ${target?.bookingNumber || bookingId} for ${target?.clientName}`,
+      'Booking',
+      currentUser
+    );
+    setAuditLogs(AppStorage.getAuditLogs());
+  };
+
+  const handleToggleChecklistItem = (
+    bookingId: string,
+    item: EventChecklistItem,
+    nextCompleted: boolean,
+    mergedChecklist: EventChecklistItem[]
+  ) => {
+    const target = bookings.find(b => b.id === bookingId);
+    const updated = bookings.map(b =>
+      b.id === bookingId ? { ...b, checklist: mergedChecklist } : b
+    );
+    setBookings(updated);
+    AppStorage.setBookings(updated);
+    AppStorage.addAuditLog(
+      nextCompleted ? 'Daily Checklist Item Completed' : 'Daily Checklist Item Reopened',
+      `${currentUser.name} ${nextCompleted ? 'checked off' : 'unchecked'} "${item.task}" (${item.category}) for ${target?.clientName || bookingId} (${target?.bookingNumber || 'N/A'}, ${target?.hallName || 'Hall'}, Event Date: ${target?.eventDate || 'Today'}).`,
+      'Booking',
+      currentUser
+    );
+    setAuditLogs(AppStorage.getAuditLogs());
+  };
+
+  const handleAddChecklistItem = (
+    bookingId: string,
+    newItem: EventChecklistItem,
+    mergedChecklist: EventChecklistItem[]
+  ) => {
+    const target = bookings.find(b => b.id === bookingId);
+    const updated = bookings.map(b =>
+      b.id === bookingId ? { ...b, checklist: mergedChecklist } : b
+    );
+    setBookings(updated);
+    AppStorage.setBookings(updated);
+    AppStorage.addAuditLog(
+      'Daily Checklist Task Added',
+      `${currentUser.name} added custom daily checklist task "${newItem.task}" for ${target?.clientName || bookingId} (${target?.bookingNumber || 'N/A'}).`,
       'Booking',
       currentUser
     );
@@ -852,14 +902,14 @@ export default function App() {
                 )}
               </div>
 
-              {currentUser.permissions.canManageBookings && (
+              {(currentUser.role === 'fnb_supervisor' || currentUser.role === 'banquet_manager') && (
                 <button
                   type="button"
-                  onClick={() => setBookingModalOpen(true)}
-                  className="flex items-center space-x-2 px-4 py-2 rounded-full bg-[#236B50] hover:bg-[#1C5740] active:scale-98 text-white font-bold text-xs shadow-md shadow-[#236B50]/20 transition-all cursor-pointer"
+                  onClick={handleOpenNewBookingModal}
+                  className="flex items-center space-x-1.5 px-4 py-2 rounded-full bg-[#236B50] hover:bg-[#1C5740] active:scale-98 text-white font-bold text-xs shadow-md shadow-[#236B50]/20 transition-all cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <Plus className="w-4 h-4 stroke-[2.5]" />
-                  <span>+ New Booking</span>
+                  <Plus className="w-4 h-4 stroke-[2.5] shrink-0" />
+                  <span>New Booking</span>
                 </button>
               )}
             </div>
@@ -887,10 +937,12 @@ export default function App() {
                   }
                   setActiveTab(tab);
                 }}
-                onOpenBookingModal={() => setBookingModalOpen(true)}
+                onOpenBookingModal={handleOpenNewBookingModal}
                 onOpenChefUsageModal={(b) => setChefUsageModalBooking(b)}
                 onConfirmPartyEnded={handleConfirmPartyEnded}
                 onSettleCashBalance={(b) => setQuickCashSettleBooking(b)}
+                onToggleChecklistItem={handleToggleChecklistItem}
+                onAddChecklistItem={handleAddChecklistItem}
               />
             )}
 
@@ -910,6 +962,8 @@ export default function App() {
                 onOpenA4Sheet={(b, page) => openA4Modal(b, page)}
                 bookingModalOpen={bookingModalOpen}
                 setBookingModalOpen={setBookingModalOpen}
+                createBookingTrigger={createBookingTrigger}
+                onConsumeCreateTrigger={() => setCreateBookingTrigger(false)}
               />
             )}
 
@@ -1006,6 +1060,18 @@ export default function App() {
                 onSaveMarketingReport={handleSaveMarketingReport}
                 onSaveMarketingReportsBatch={handleSaveMarketingReportsBatch}
                 onRestoreMarketingReports={handleRestoreMarketingReports}
+              />
+            )}
+
+            {activeTab === 'ai_analysis' && (
+              <AiAnalysisPanel
+                bookings={bookings}
+                invoices={invoices}
+                ingredients={ingredients}
+                recipes={recipes}
+                halls={halls}
+                marketingReports={marketingReports}
+                currentUser={currentUser}
               />
             )}
 

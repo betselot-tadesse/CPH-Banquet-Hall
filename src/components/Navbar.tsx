@@ -87,6 +87,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: FileText,
       roles: ['general_manager', 'accounts_executive', 'marketing_executive']
     },
+    {
+      id: 'ai_analysis',
+      label: 'AI Analysis',
+      icon: Sparkles,
+      roles: ['general_manager', 'marketing_executive', 'accounts_executive', 'executive_chef', 'fnb_supervisor', 'banquet_manager']
+    },
     { 
       id: 'costing_required', 
       label: currentUser.role === 'accounts_executive' ? 'FIFO Costing Queue' : 'Costing Queue', 
@@ -184,8 +190,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </svg>
           </div>
           <div>
-            <div className="font-extrabold text-base tracking-tight font-['Plus_Jakarta_Sans'] leading-tight">
-              AuraBanquets
+            <div className="font-extrabold text-sm tracking-tight font-['Plus_Jakarta_Sans'] leading-tight">
+              Crystal Plaza Banquets
             </div>
             <div className="text-[10px] text-[#A5D1C1] font-semibold tracking-wide">
               Crystal Plaza Hotel
@@ -293,7 +299,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-[#192A24] text-base">Select Staff Profile (RBAC)</h3>
-                  <p className="text-[11px] text-[#6E8279]">Switch between Marketing Executive (Betselot), General Manager, Head Chef, Sales, or Accounts</p>
+                  <p className="text-[11px] text-[#6E8279]">Switch between Marketing Executive, General Manager, Executive Chef, F&amp;B Supervisor, or Accounts</p>
                 </div>
               </div>
               <button
@@ -308,6 +314,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="grid grid-cols-1 gap-2.5">
                 {allUsers.map((user) => {
                   const isSelected = user.id === currentUser.id;
+                  const initials = user.name
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map(part => part[0]?.toUpperCase() || '')
+                    .join('');
                   return (
                     <button
                       key={user.id}
@@ -321,11 +333,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                           : 'bg-white border-[#E5EFEA] hover:bg-[#F9FCFA] hover:border-[#CADBD2]'
                       }`}
                     >
-                      <img
-                        src={user.avatar}
-                        alt={user.name}
-                        className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm mt-0.5"
-                      />
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center font-extrabold text-xs border shadow-sm shrink-0 mt-0.5 ${getRoleBadgeColor(user.role)}`}
+                        aria-hidden="true"
+                      >
+                        {initials}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-[#192A24] text-sm">{user.name}</span>

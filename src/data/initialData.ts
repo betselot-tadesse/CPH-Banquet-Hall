@@ -8,7 +8,7 @@ export const INITIAL_USERS: UserProfile[] = [
     role: 'marketing_executive',
     title: 'Marketing Executive & Growth Lead',
     email: 'betselot.marketing@crystalplazahotel.com',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    avatar: '',
     pin: '5678',
     permissions: {
       canViewProfits: true,
@@ -17,7 +17,7 @@ export const INITIAL_USERS: UserProfile[] = [
       canModifyRecords: true,
       canEditPricing: true,
       canManageBookings: true,
-      canManageRecipes: false, // Strictly Executive Chef privilege - only Chef Karim can enter ingredients & recipes
+      canManageRecipes: false, // Strictly Executive Chef privilege - only Executive Chef can enter ingredients & recipes
       canLogChefUsage: false, // Strictly Executive Chef privilege - Betselot cannot put or alter chef ingredients
       canManageInventory: true,
       canGenerateInvoices: true,
@@ -28,11 +28,11 @@ export const INITIAL_USERS: UserProfile[] = [
   },
   {
     id: 'user_gm',
-    name: 'Eleanor Vance',
+    name: 'Abhishek Kumar',
     role: 'general_manager',
     title: 'General Manager & Managing Director',
-    email: 'eleanor.vance@crystalplazahotel.com',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    email: 'abhishek.kumar@crystalplazahotel.com',
+    avatar: '',
     pin: '1234',
     permissions: {
       canViewProfits: true,
@@ -52,11 +52,11 @@ export const INITIAL_USERS: UserProfile[] = [
   },
   {
     id: 'user_fnb',
-    name: "Francis D'Souza",
+    name: 'F&B Supervisor',
     role: 'fnb_supervisor',
     title: 'F&B Supervisor & Banquet Lead',
-    email: 'francis.fnb@crystalplazahotel.com',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    email: 'fnb.supervisor@crystalplazahotel.com',
+    avatar: '',
     pin: '3456',
     permissions: {
       canViewProfits: false,   // Supervisor cannot see costing and financials!
@@ -76,11 +76,11 @@ export const INITIAL_USERS: UserProfile[] = [
   },
   {
     id: 'user_chef',
-    name: 'Chef Karim Zayani',
+    name: 'Executive Chef',
     role: 'executive_chef',
     title: 'Executive Head Chef',
-    email: 'chef.karim@crystalplazahotel.com',
-    avatar: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=150&auto=format&fit=crop&q=80',
+    email: 'executive.chef@crystalplazahotel.com',
+    avatar: '',
     pin: '2345',
     permissions: {
       canViewProfits: false,   // Chef cannot see revenue, income, net profit!
@@ -100,23 +100,23 @@ export const INITIAL_USERS: UserProfile[] = [
   },
   {
     id: 'user_accounts',
-    name: 'Arun Kumar',
+    name: 'Accounts',
     role: 'accounts_executive',
     title: 'Accounts & Purchasing Costing Executive',
-    email: 'arun.accounts@crystalplazahotel.com',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    email: 'accounts@crystalplazahotel.com',
+    avatar: '',
     pin: '4567',
     permissions: {
-      canViewProfits: true,   // Accounts views banquets, enters purchase prices, views all financials
-      canViewCosting: true,
+      canViewProfits: true,      // Accounts views banquets & financials
+      canViewCosting: true,      // Costing-only edit access (purchasing unit prices & FIFO GL posting)
       canViewRevenue: true,
-      canModifyRecords: true,
-      canEditPricing: true,
+      canModifyRecords: false,   // Accounts cannot update, edit, or add anything beside costing
+      canEditPricing: true,      // Scoped strictly to purchasing unit prices inside Costing
       canManageBookings: false,
       canManageRecipes: false,
       canLogChefUsage: false,
-      canManageInventory: true,
-      canGenerateInvoices: true,
+      canManageInventory: false,
+      canGenerateInvoices: false,
       canAccessBackups: false,
       canManageUsers: false,
       canApproveUnlocks: false,
@@ -126,9 +126,9 @@ export const INITIAL_USERS: UserProfile[] = [
 
 export const INITIAL_HALLS: BanquetHall[] = [
   {
-    id: 'hall_cph_main',
-    name: 'Crystal Plaza Grand Ballroom',
-    branch: 'Crystal Plaza (CPH)',
+    id: 'hall_first_floor_big',
+    name: 'First Floor Big Hall',
+    branch: 'CPH1',
     capacityMin: 30,
     capacityMax: 350,
     squareFeet: 5800,
@@ -138,56 +138,24 @@ export const INITIAL_HALLS: BanquetHall[] = [
     standardStaffingCost: 300,
     utilityPerEvent: 120,
     image: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=800&auto=format&fit=crop&q=80',
-    description: 'Flagship banquet ballroom at Crystal Plaza Hotel with 3 partitions: Left Side, Center, and Right Side. Free with food bookings.',
+    description: 'First Floor Big Hall at Crystal Plaza Hotel with 3 partitions: Left Side, Center, and Right Side. Free with food bookings.',
     amenities: ['Partitionable 3-Sides (Left, Center, Right)', 'Stage & Projector', 'Buffet Island Warmers', 'Separate VIP Room'],
   },
   {
-    id: 'hall_cph_sapphire',
-    name: 'Crystal Plaza Sapphire Pavilion',
-    branch: 'Crystal Plaza (CPH)',
-    capacityMin: 30,
-    capacityMax: 200,
-    squareFeet: 3200,
-    baseRentalPerSlot: 1500,
-    cleaningFee: 120,
-    standardAVCost: 200,
-    standardStaffingCost: 250,
-    utilityPerEvent: 100,
-    image: 'https://images.unsplash.com/photo-1545232979-fbf68fe9b10d?w=800&auto=format&fit=crop&q=80',
-    description: 'Elegant banquet pavilion at Crystal Plaza Hotel with modern ambient lighting and live buffet counters.',
-    amenities: ['Buffet Display Setup', 'Sound System', 'One-Side Partitioning Option', 'Dedicated Guest Restrooms'],
-  },
-  {
-    id: 'hall_cph_royal',
-    name: 'Crystal Plaza Royal Sovereign Hall',
-    branch: 'Crystal Plaza (CPH)',
-    capacityMin: 30,
-    capacityMax: 150,
-    squareFeet: 2500,
+    id: 'hall_suite_room',
+    name: 'Suite room Hall',
+    branch: 'CPH1',
+    capacityMin: 20,
+    capacityMax: 120,
+    squareFeet: 2200,
     baseRentalPerSlot: 1500,
     cleaningFee: 100,
     standardAVCost: 180,
     standardStaffingCost: 200,
     utilityPerEvent: 90,
-    image: 'https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?w=800&auto=format&fit=crop&q=80',
-    description: 'Celebration hall ideal for 30 to 80 guest get-together celebrations and family parties.',
-    amenities: ['Buffet Serving Line', 'Cake Cutting Stage', 'Audio Speakers'],
-  },
-  {
-    id: 'hall_cph_terrace',
-    name: 'Crystal Plaza Emerald Sky Terrace',
-    branch: 'Crystal Plaza (CPH)',
-    capacityMin: 30,
-    capacityMax: 120,
-    squareFeet: 2200,
-    baseRentalPerSlot: 1500,
-    cleaningFee: 90,
-    standardAVCost: 150,
-    standardStaffingCost: 180,
-    utilityPerEvent: 80,
-    image: 'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800&auto=format&fit=crop&q=80',
-    description: 'Scenic outdoor-indoor terrace venue overlooking the city skyline, perfect for dinner receptions.',
-    amenities: ['Panoramic View', 'Ambient Lighting', 'Dedicated Live Cooking Stations'],
+    image: 'https://images.unsplash.com/photo-1545232979-fbf68fe9b10d?w=800&auto=format&fit=crop&q=80',
+    description: 'Suite room Hall at Crystal Plaza Hotel, ideal for intimate family celebrations, executive gatherings, and private banquets.',
+    amenities: ['Buffet Serving Line', 'Sound System', 'Dedicated Guest Restrooms', 'Flexible Seating'],
   },
 ];
 
@@ -719,9 +687,9 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
     id: 'aud_1',
     timestamp: '2026-10-14 06:15:22',
     userId: 'user_fnb',
-    userName: 'Francis D\'Souza',
+    userName: 'F&B Supervisor',
     action: 'F&B Booking Registered for Mr. Betsy',
-    details: 'Get-Together party for 30 guests booked with 60 AED Buffet Menu at Crystal Plaza Grand Ballroom. Free banquet hall offer applied.',
+    details: 'Get-Together party for 30 guests booked with 60 AED Buffet Menu at First Floor Big Hall. Free banquet hall offer applied.',
     category: 'Booking',
   },
   {
@@ -746,7 +714,7 @@ export const INITIAL_STOCK_MOVEMENTS: KitchenStockMovement[] = [
     remainingSubUnits: 128,
     reasonOrReference: 'Room Service: 1 Portion Chicken Biryani prepared',
     timestamp: '2026-10-15 14:30',
-    performedBy: 'Chef Karim Zayani',
+    performedBy: 'Executive Chef',
   },
   {
     id: 'mov_2',
@@ -758,7 +726,7 @@ export const INITIAL_STOCK_MOVEMENTS: KitchenStockMovement[] = [
     remainingSubUnits: 130,
     reasonOrReference: 'Emirates Poultry Farms Delivery (Inv #EPF-2026-B941)',
     timestamp: '2026-10-14 09:15',
-    performedBy: 'Arun Kumar (Accounts)',
+    performedBy: 'Accounts',
   },
   {
     id: 'mov_3',
@@ -770,7 +738,7 @@ export const INITIAL_STOCK_MOVEMENTS: KitchenStockMovement[] = [
     remainingSubUnits: 235,
     reasonOrReference: 'Banquet Buffet Party for 30 Guests (Booking #BKT-CPH-2026-088)',
     timestamp: '2026-10-15 11:20',
-    performedBy: 'Chef Karim Zayani',
+    performedBy: 'Executive Chef',
   },
   {
     id: 'mov_4',
@@ -782,7 +750,7 @@ export const INITIAL_STOCK_MOVEMENTS: KitchenStockMovement[] = [
     remainingSubUnits: 8,
     reasonOrReference: 'Umm Ali & Soup Batch Prep for Banquet',
     timestamp: '2026-10-15 17:00',
-    performedBy: 'Chef Karim Zayani',
+    performedBy: 'Executive Chef',
   },
 ];
 
@@ -1102,7 +1070,7 @@ export const INITIAL_WHATSAPP_OFFERS: WhatsAppRetargetingOffer[] = [
     badge: 'Banquet Exclusive',
     photoUrl: 'https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=1000&auto=format&fit=crop&q=80',
     headline: 'Host Your Next Celebration at Crystal Plaza – 100% Free Hall Hire!',
-    description: 'As our valued past hotel guest, book your family gathering, birthday party, wedding reception, or corporate dinner with us and receive our Royal Grand Ballroom hall hire completely FREE when booking our 60, 80, or 100 AED per guest luxury buffet menus.',
+    description: 'As our valued past hotel guest, book your family gathering, birthday party, wedding reception, or corporate dinner with us and receive our First Floor Big Hall or Suite room Hall hire completely FREE when booking our 60, 80, or 100 AED per guest luxury buffet menus.',
     perks: [
       '100% Free Banquet Hall Rental (Save up to 1,500 AED)',
       'Lavish multi-course buffet with live carving & dessert stations',
@@ -1156,7 +1124,7 @@ export const INITIAL_WHATSAPP_OFFERS: WhatsAppRetargetingOffer[] = [
     badge: 'Corporate Special',
     photoUrl: 'https://images.unsplash.com/photo-1511578314322-379afb476865?w=1000&auto=format&fit=crop&q=80',
     headline: 'Executive Meeting & Year-End Corporate Dinner Packages',
-    description: 'Planning an executive board meeting, regional conference, or company appreciation gala? Host your delegates in our Sapphire Pavilion with custom delegate day rates from only 75 AED per person.',
+    description: 'Planning an executive board meeting, regional conference, or company appreciation gala? Host your delegates in our First Floor Big Hall or Suite room Hall with custom delegate day rates from only 75 AED per person.',
     perks: [
       'High-definition projector, wireless mics & surround sound included',
       'Dedicated corporate event concierge throughout the session',
@@ -1196,7 +1164,7 @@ Exclusive Promo Code: {promo_code}
 Offer Valid Until: {valid_until}
 View Official Flyer: {photo_url}
 
-For VIP table reservations, ballroom walkthroughs, or custom menu planning with Chef Karim, simply reply directly to this chat or call our F&B concierge at {hotel_phone}. We look forward to welcoming you back!`,
+For VIP table reservations, ballroom walkthroughs, or custom menu planning with our Executive Chef, simply reply directly to this chat or call our F&B concierge at {hotel_phone}. We look forward to welcoming you back!`,
   },
   {
     id: 'tpl_vip_dining',
@@ -1317,7 +1285,7 @@ export const INITIAL_BANQUET_LEADS: BanquetLead[] = [
     targetEventDate: '2026-11-20',
     estimatedGuests: 120,
     budgetAED: 15000,
-    hallPreference: 'Al Maha Grand Ballroom (1st Floor)',
+    hallPreference: 'First Floor Big Hall',
     buffetPreference: 'Royal Wedding Feast (100 AED/pax)',
     adCampaignName: 'Royal Wedding & Mega Reception (100 AED Buffet)',
     notes: 'Clicked Instagram Ad for Royal Wedding Feast. Inquired about stage lighting and bridal suite inclusion.',
@@ -1335,7 +1303,7 @@ export const INITIAL_BANQUET_LEADS: BanquetLead[] = [
     targetEventDate: '2026-11-15',
     estimatedGuests: 75,
     budgetAED: 8500,
-    hallPreference: 'Al Dana Banquet Hall (2nd Floor)',
+    hallPreference: 'Suite room Hall',
     buffetPreference: 'Platinum Gala Dinner (85 AED/pax)',
     adCampaignName: 'Sharjah Family & Engagement Packages',
     notes: 'Direct WhatsApp inquiry for engagement ceremony. Sent 2-page BEO sample and dessert chafer options.',
@@ -1353,10 +1321,10 @@ export const INITIAL_BANQUET_LEADS: BanquetLead[] = [
     targetEventDate: '2026-12-05',
     estimatedGuests: 110,
     budgetAED: 14500,
-    hallPreference: 'Al Maha Grand Ballroom (1st Floor)',
+    hallPreference: 'First Floor Big Hall',
     buffetPreference: 'Executive Corporate Lunch Buffet',
     adCampaignName: 'Corporate Banquet & Year-End Galas',
-    notes: 'Scheduled for in-person hall walkthrough and Chef Karim food tasting on Thursday 3:00 PM.',
+    notes: 'Scheduled for in-person hall walkthrough and Executive Chef food tasting on Thursday 3:00 PM.',
     followUpStatus: 'followed_up',
     createdAt: '2026-10-12T11:00:00Z',
   },
@@ -1371,10 +1339,10 @@ export const INITIAL_BANQUET_LEADS: BanquetLead[] = [
     targetEventDate: '2026-11-28',
     estimatedGuests: 90,
     budgetAED: 12000,
-    hallPreference: 'Casmia Banquet (Qasmia Branch)',
+    hallPreference: 'First Floor Big Hall',
     buffetPreference: 'Royal Wedding Feast (100 AED/pax)',
     adCampaignName: 'Royal Wedding & Mega Reception (100 AED Buffet)',
-    notes: '48-hour provisional hold placed by Francis. Guest requested complimentary bridal walkthrough runway.',
+    notes: '48-hour provisional hold placed by F&B Supervisor. Guest requested complimentary bridal walkthrough runway.',
     followUpStatus: 'pending',
     createdAt: '2026-10-11T16:45:00Z',
   },
@@ -1389,7 +1357,7 @@ export const INITIAL_BANQUET_LEADS: BanquetLead[] = [
     targetEventDate: '2026-11-18',
     estimatedGuests: 50,
     budgetAED: 5500,
-    hallPreference: 'Al Dana Banquet Hall (2nd Floor)',
+    hallPreference: 'Suite room Hall',
     buffetPreference: 'Silver Celebration Buffet (70 AED/pax)',
     adCampaignName: 'Birthday & Anniversary Celebrations',
     notes: '1st birthday celebration for baby boy. Looking for balloon arch decor and vegetarian live counter.',
@@ -1407,10 +1375,10 @@ export const INITIAL_BANQUET_LEADS: BanquetLead[] = [
     targetEventDate: '2026-10-25',
     estimatedGuests: 100,
     budgetAED: 13500,
-    hallPreference: 'Al Maha Grand Ballroom (1st Floor)',
+    hallPreference: 'First Floor Big Hall',
     buffetPreference: 'Executive Corporate Lunch Buffet',
     adCampaignName: 'Corporate Banquet & Year-End Galas',
-    notes: 'Successfully converted! 4,000 AED advance received by Francis. Booked as CPH-2026-003.',
+    notes: 'Successfully converted! 4,000 AED advance received by F&B Supervisor. Booked as CPH-2026-003.',
     convertedBookingId: 'booking_2',
     createdAt: '2026-10-08T10:00:00Z',
   },
@@ -1438,7 +1406,7 @@ For your group of ~{guests} guests, we have reserved provisional availability in
 Would you like me to send you our full PDF Function Prospectus and photos of the hall setup?
 
 Warm regards,
-Francis D'Souza • Banquet Sales Manager
+F&B Supervisor • Banquet Sales Team
 Crystal Plaza Hotel, Sharjah (+971 6 572 2555)`,
   },
   {
@@ -1449,16 +1417,16 @@ Crystal Plaza Hotel, Sharjah (+971 6 572 2555)`,
     actionHook: 'Invite for Food Tasting',
     messageText: `Hello {client_name}! ✨
 
-Francis here from Crystal Plaza Hotel. We hope you liked the banquet menu we shared!
+Greetings from Crystal Plaza Hotel Banquets. We hope you liked the banquet menu we shared!
 
-To help you and your family decide with 100% confidence, our Executive Chef Karim Zayani would love to host you for a *Complimentary Food Tasting* this week at Crystal Plaza.
+To help you and your family decide with 100% confidence, our Executive Chef would love to host you for a *Complimentary Food Tasting* this week at Crystal Plaza.
 
 You will taste our signature Shish Tawook, Mutton Rogan Josh, and freshly prepared banquet desserts.
 
 Which day works best for you: Wednesday or Thursday evening?
 
 Best regards,
-Francis D'Souza • Crystal Plaza Banquets`,
+F&B Supervisor • Crystal Plaza Banquets`,
   },
   {
     id: 'tpl_closing_perk',
@@ -1477,7 +1445,7 @@ If you confirm your banquet booking by this Thursday with an advance deposit, yo
 
 Shall I prepare the official provisional agreement for your review?
 
-Francis D'Souza • Crystal Plaza Banquets`,
+F&B Supervisor • Crystal Plaza Banquets`,
   },
   {
     id: 'tpl_hold_urgency',
@@ -1491,9 +1459,9 @@ We have received a second inquiry from another client for {hall_name} on {date}.
 
 Because you inquired first, our system has placed a provisional 48-hour hold under your name, expiring tomorrow at 6:00 PM.
 
-Due to our strict "One Party Per Date" rule, we cannot hold the hall without an advance once this timer expires. Would you like to secure your date today with a nominal advance deposit?
+Due to our strict "One Party Per Hall & Date" rule, we cannot hold the hall without an advance once this timer expires. Would you like to secure your date today with a nominal advance deposit?
 
-Francis D'Souza • Crystal Plaza Banquets (+971 6 572 2555)`,
+F&B Supervisor • Crystal Plaza Banquets (+971 6 572 2555)`,
   },
 ];
 

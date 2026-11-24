@@ -30,7 +30,7 @@ import {
   Banknote,
   Target
 } from 'lucide-react';
-import { BookingEvent, RawIngredient, UserProfile, RecipeMenuItem, BanquetHall, Invoice, MetaAdMonthlyReport } from '../types';
+import { BookingEvent, RawIngredient, UserProfile, RecipeMenuItem, BanquetHall, Invoice, MetaAdMonthlyReport, EventChecklistItem } from '../types';
 import { calculateEventFinancials, getBookingPaymentSummary, getLiveTodayInfo, formatCurrency, formatPercent } from '../utils/costCalculations';
 import { AppStorage } from '../services/storage';
 import { PostingReportModal } from './PostingReportModal';
@@ -38,6 +38,10 @@ import { QuickCashSettlementModal } from './QuickCashSettlementModal';
 import { MarketingRollingForecastWidget } from './MarketingRollingForecastWidget';
 import { YearOverYearComparisonChart } from './YearOverYearComparisonChart';
 import { BookingsVsLeadsChart } from './BookingsVsLeadsChart';
+import { BanquetProfitabilityHeatmap } from './BanquetProfitabilityHeatmap';
+import { RevenueVsProjectedAreaChart } from './RevenueVsProjectedAreaChart';
+import { MomRevenueGrowthRadialChart } from './MomRevenueGrowthRadialChart';
+import { DailyOperationsChecklist } from './DailyOperationsChecklist';
 
 interface DashboardProps {
   bookings: BookingEvent[];
@@ -52,6 +56,17 @@ interface DashboardProps {
   onOpenChefUsageModal: (booking: BookingEvent) => void;
   onConfirmPartyEnded?: (bookingId: string) => void;
   onSettleCashBalance?: (booking: BookingEvent) => void;
+  onToggleChecklistItem?: (
+    bookingId: string,
+    item: EventChecklistItem,
+    nextCompleted: boolean,
+    mergedChecklist: EventChecklistItem[]
+  ) => void;
+  onAddChecklistItem?: (
+    bookingId: string,
+    newItem: EventChecklistItem,
+    mergedChecklist: EventChecklistItem[]
+  ) => void;
 }
 
 interface MonthlyPartySummary {
@@ -76,6 +91,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenChefUsageModal,
   onConfirmPartyEnded,
   onSettleCashBalance,
+  onToggleChecklistItem,
+  onAddChecklistItem,
 }) => {
   const [quickCashModalBooking, setQuickCashModalBooking] = useState<BookingEvent | null>(null);
 
@@ -593,15 +610,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigate('reports')}
-            className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-white text-[#236B50] hover:bg-emerald-50 font-black text-xs shadow-md transition-all cursor-pointer self-start md:self-auto shrink-0"
-          >
-            <FileText className="w-4 h-4" />
-            <span>Open Full Printable Reports</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigate('ai_analysis')}
+              className="flex items-center space-x-2 px-4 py-2.5 rounded-full bg-emerald-400/20 hover:bg-emerald-400/30 border border-emerald-200/40 text-white font-bold text-xs transition-all cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>AI Analysis</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('reports')}
+              className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-white text-[#236B50] hover:bg-emerald-50 font-black text-xs shadow-md transition-all cursor-pointer"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Open Full Printable Reports</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Concise Executive KPI Summary Cards */}
@@ -683,6 +711,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </section>
 
+        {/* Month-over-Month Revenue Growth Radial Bar Chart */}
+        <MomRevenueGrowthRadialChart
+          bookings={bookings}
+          marketingReports={marketingReports}
+        />
+
+        {/* Monthly Actual Total Revenue vs. Projected Revenue Area Chart */}
+        <RevenueVsProjectedAreaChart
+          bookings={bookings}
+          marketingReports={marketingReports}
+          monthlyRevenueGoal={monthlyRevenueGoal}
+        />
+
         {/* Year-to-Year Monthly Comparison Chart */}
         <YearOverYearComparisonChart
           bookings={bookings}
@@ -693,6 +734,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Confirmed Bookings vs. Leads Conversion Efficiency Gauge */}
         <BookingsVsLeadsChart
+          bookings={bookings}
+          marketingReports={marketingReports}
+        />
+
+        {/* Profitability per Banquet Heat Map (Calendar Months × Banquet Types) */}
+        <BanquetProfitabilityHeatmap
           bookings={bookings}
           marketingReports={marketingReports}
         />
@@ -1358,6 +1405,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <BookingsVsLeadsChart
           bookings={bookings}
           marketingReports={marketingReports}
+        />
+      )}
+
+      {/* PROFIT-AUTHORIZED ROLES: PROFITABILITY PER BANQUET HEAT MAP */}
+      {currentUser.permissions.canViewProfits && (
+        <BanquetProfitabilityHeatmap
+          bookings={bookings}
+          marketingReports={marketingReports}
+        />
+      )}
+
+      {/* MANAGEMENT & FINANCE ROLES: ACTUAL VS. PROJECTED REVENUE AREA CHART */}
+      {(currentUser.role === 'marketing_executive' ||
+        currentUser.role === 'banquet_manager' ||
+        currentUser.role === 'accounts_executive') && (
+        <RevenueVsProjectedAreaChart
+          bookings={bookings}
+          marketingReports={marketingReports}
+          monthlyRevenueGoal={monthlyRevenueGoal}
+        />
+      )}
+
+      {/* =====================================================================
+          F&B SUPERVISOR: DAILY OPERATIONS CHECKLIST (TODAY'S EVENTS)
+          ===================================================================== */}
+      {(currentUser.role === 'fnb_supervisor' || currentUser.role === 'banquet_manager') &&
+        onToggleChecklistItem && (
+        <DailyOperationsChecklist
+          bookings={bookings}
+          currentUser={currentUser}
+          onToggleChecklistItem={onToggleChecklistItem}
+          onAddChecklistItem={onAddChecklistItem}
+          onOpenBookingModal={onOpenBookingModal}
         />
       )}
 

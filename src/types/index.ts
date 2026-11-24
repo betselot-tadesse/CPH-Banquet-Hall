@@ -26,7 +26,7 @@ export interface UserProfile {
   };
 }
 
-export type HotelBranch = 'Crystal Plaza (CPH)' | 'Qasmia (Casmia CPH)' | 'CPH 9 (Crystal Plaza)' | 'Najas CPH';
+export type HotelBranch = 'CPH1' | 'CPH2';
 
 export type HallOfferType = 
   | 'free_with_food'      // Hall is FREE when booking food/buffet from hotel

@@ -252,7 +252,8 @@ export const ReportsAnalytics: React.FC<ReportsAnalyticsProps> = ({
   const chartFilteredBookings = bookings.filter(b => {
     if (!b.eventDate.startsWith(currentMonthStr)) return false;
     if (selectedHallFilter === 'all') return true;
-    return b.hallId === selectedHallFilter;
+    const selectedHallObj = halls.find(h => h.id === selectedHallFilter);
+    return b.hallId === selectedHallFilter || (selectedHallObj && b.hallName === selectedHallObj.name);
   });
 
   // Construct continuous daily chart data for the active month
@@ -859,10 +860,11 @@ export const ReportsAnalytics: React.FC<ReportsAnalyticsProps> = ({
               className="bg-transparent text-xs font-bold text-[#192A24] focus:outline-none cursor-pointer py-1 px-2.5 rounded-xl"
             >
               <option value="all">Crystal Plaza Hotel (All Banquet Halls)</option>
-              <option value="hall_cph_main">Grand Ballroom (Crystal Plaza)</option>
-              <option value="hall_cph_sapphire">Sapphire Pavilion (Crystal Plaza)</option>
-              <option value="hall_cph_royal">Royal Sovereign Hall (Crystal Plaza)</option>
-              <option value="hall_cph_terrace">Emerald Sky Terrace (Crystal Plaza)</option>
+              {halls.map(h => (
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>

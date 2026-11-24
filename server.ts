@@ -46,7 +46,7 @@ let serverNotifications: NotificationItem[] = [
     id: 'notif_welcome_1',
     timestamp: '2026-10-14T09:00:00Z',
     title: 'System Initialized',
-    message: 'AuraBanquets hotel banquet software initialized with strict role permissions & automated costing workflow.',
+    message: 'Crystal Plaza Banquets hotel banquet software initialized with strict role permissions & automated costing workflow.',
     type: 'new_booking',
     targetRoles: 'all',
     isRead: false,
@@ -1033,19 +1033,476 @@ app.post('/api/marketing/ocr-meta-ads', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('OCR Meta Ads Extraction Error:', err);
     const msg = err?.message || 'Failed to extract OCR data from Meta Ads report.';
-    const status = msg.includes('GEMINI_API_KEY') ? 500 : (err?.status || 500);
+    const rawStatus = msg.includes('GEMINI_API_KEY') ? 500 : (err?.status || 500);
+    const safeStatus =
+      rawStatus === 403
+        ? 401
+        : rawStatus === 502 || rawStatus === 503 || rawStatus === 504
+        ? 429
+        : rawStatus >= 400 && rawStatus < 600
+        ? rawStatus
+        : 500;
 
     let friendlyError = msg;
     if (msg.includes('API_KEY_INVALID') || msg.includes('PERMISSION_DENIED')) {
       friendlyError = 'Gemini API key is invalid or unauthorized. Please verify your key in Settings > Secrets.';
-    } else if (msg.includes('RESOURCE_EXHAUSTED') || status === 429) {
-      friendlyError = 'OCR request quota reached. Please wait a moment and try again, or verify your key in Settings > Secrets.';
+    } else if (msg.includes('RESOURCE_EXHAUSTED') || rawStatus === 429 || rawStatus === 503 || msg.includes('UNAVAILABLE')) {
+      friendlyError = 'AI OCR service is temporarily busy. Please wait a moment and try again.';
     }
 
-    return res.status(status >= 400 && status < 600 ? status : 500).json({
+    return res.status(safeStatus).json({
       error: friendlyError,
     });
   }
+});
+
+// ============================================================================
+// 10. GEMINI 4 HYDROGEN AI BANQUET & FINANCIAL ANALYSIS ENDPOINTS
+// ============================================================================
+function safeParseGeminiJson(rawText: string | undefined): any {
+  const trimmed = (rawText ?? '').trim();
+  if (!trimmed) {
+    throw new Error('AI model returned an empty response. Please try again.');
+  }
+
+  // Strip markdown code fences if present (e.g. ```json ... ```)
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const unfenced = (fenceMatch ? fenceMatch[1] : trimmed).trim();
+
+  try {
+    return JSON.parse(unfenced);
+  } catch {
+    // Attempt extracting outermost JSON object
+    const firstBrace = unfenced.indexOf('{');
+    const lastBrace = unfenced.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(unfenced.slice(firstBrace, lastBrace + 1));
+    }
+    throw new Error('AI model returned a malformed JSON payload. Please retry.');
+  }
+}
+
+function extractFriendlyGeminiError(err: any, fallbackMessage: string): { status: number; message: string } {
+  const rawMsg = typeof err?.message === 'string' ? err.message : fallbackMessage;
+  let extractedMsg = rawMsg;
+  let status = typeof err?.status === 'number' ? err.status : 500;
+
+  // Unwrap SDK JSON error strings like '{"error":{"code":503,"message":"..."}}'
+  try {
+    const firstBrace = rawMsg.indexOf('{');
+    if (firstBrace !== -1) {
+      const parsed = JSON.parse(rawMsg.slice(firstBrace));
+      if (parsed?.error?.message) {
+        extractedMsg = parsed.error.message;
+      }
+      if (typeof parsed?.error?.code === 'number') {
+        status = parsed.error.code;
+      }
+    }
+  } catch {
+    // Keep raw message if not JSON-wrapped
+  }
+
+  if (extractedMsg.includes('GEMINI_API_KEY')) {
+    return { status: 500, message: extractedMsg };
+  }
+  if (extractedMsg.includes('API_KEY_INVALID') || extractedMsg.includes('PERMISSION_DENIED') || status === 403) {
+    return {
+      status: 401,
+      message: 'Gemini API key is invalid or unauthorized. Please verify your key in Settings > Secrets.',
+    };
+  }
+  // Never emit HTTP 502/503/504 because the preview proxy intercepts them with HTML warmup pages.
+  if (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    extractedMsg.includes('UNAVAILABLE') ||
+    extractedMsg.includes('high demand')
+  ) {
+    return {
+      status: 429,
+      message: 'The AI service is temporarily experiencing high demand. Please click Retry Analysis in a few seconds.',
+    };
+  }
+  if (status === 429 || extractedMsg.includes('RESOURCE_EXHAUSTED')) {
+    return {
+      status: 429,
+      message: 'AI request quota reached. Please wait a moment and try again.',
+    };
+  }
+
+  return {
+    status: status >= 400 && status < 600 ? status : 500,
+    message: extractedMsg,
+  };
+}
+
+async function generateStructuredWithResilience(
+  ai: GoogleGenAI,
+  opts: {
+    contents: any;
+    systemInstruction: string;
+    responseSchema: any;
+    thinkingLevel?: ThinkingLevel;
+  }
+) {
+  const attempts: Array<{ model: string; useThinking: boolean }> = [
+    { model: 'gemini-4-hydrogen', useThinking: true },
+    { model: 'gemini-4-hydrogen', useThinking: true },
+    { model: 'gemini-3.1-flash-lite', useThinking: false },
+  ];
+
+  let lastError: any = null;
+
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    try {
+      const config: Record<string, any> = {
+        systemInstruction: opts.systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: opts.responseSchema,
+      };
+      if (attempt.useThinking && opts.thinkingLevel) {
+        config.thinkingConfig = { thinkingLevel: opts.thinkingLevel };
+      }
+
+      const response = await ai.models.generateContent({
+        model: attempt.model,
+        contents: opts.contents,
+        config,
+      });
+
+      return safeParseGeminiJson(response.text);
+    } catch (err: any) {
+      lastError = err;
+      const msg = String(err?.message || '');
+      const status = err?.status;
+      const isTransient =
+        status === 503 ||
+        status === 502 ||
+        status === 504 ||
+        status === 429 ||
+        status === 404 ||
+        msg.includes('503') ||
+        msg.includes('UNAVAILABLE') ||
+        msg.includes('high demand') ||
+        msg.includes('NOT_FOUND') ||
+        msg.includes('empty response') ||
+        msg.includes('malformed JSON');
+
+      if (!isTransient || i === attempts.length - 1) {
+        throw err;
+      }
+
+      // Brief backoff before next attempt / fallback model
+      await new Promise((resolve) => setTimeout(resolve, 650 * (i + 1)));
+    }
+  }
+
+  throw lastError || new Error('AI request failed.');
+}
+
+app.post('/api/ai/analyze', async (req: Request, res: Response) => {
+  try {
+    const {
+      focusArea = 'executive_overview',
+      role = 'general_manager',
+      userName = 'Manager',
+      permissions = {},
+      snapshot,
+    } = req.body as {
+      focusArea?: string;
+      role?: string;
+      userName?: string;
+      permissions?: {
+        canViewProfits?: boolean;
+        canViewCosting?: boolean;
+        canViewRevenue?: boolean;
+      };
+      snapshot?: Record<string, any>;
+    };
+
+    if (!snapshot || typeof snapshot !== 'object') {
+      return res.status(400).json({
+        error: 'Missing operational data snapshot for AI analysis.',
+      });
+    }
+
+    const ai = getGeminiClient();
+
+    const canViewProfits = permissions.canViewProfits !== false;
+    const canViewCosting = permissions.canViewCosting !== false;
+    const canViewRevenue = permissions.canViewRevenue !== false;
+
+    const visibilityRules: string[] = [];
+    if (!canViewProfits) {
+      visibilityRules.push('STRICTLY DO NOT mention or calculate net profit, gross profit AED, or profit margin percentages.');
+    }
+    if (!canViewCosting) {
+      visibilityRules.push('STRICTLY DO NOT mention or estimate internal food costs, purchasing unit prices, COGS, or ingredient costing.');
+    }
+    if (!canViewRevenue) {
+      visibilityRules.push('STRICTLY DO NOT mention client revenue, billing totals, selling prices, hall rental charges, or deposit/balance AED amounts.');
+    }
+
+    const focusGuidance: Record<string, string> = {
+      executive_overview:
+        'Provide a comprehensive executive synthesis covering banquet volume, hall utilization (First Floor Big Hall vs Suite room Hall), financial/cost efficiency (as permitted), pending workflow bottlenecks, and top strategic priorities.',
+      profitability_costing:
+        'Focus deeply on menu & hall profitability, theoretical vs actual food cost variances (>10% alerts), recipe/ingredient cost spikes, Chef-to-Accounts FIFO costing queue bottlenecks, and wastage/portion control opportunities.',
+      operations_cashflow:
+        'Focus on hall occupancy (First Floor Big Hall vs Suite room Hall), guest count efficiency, tentative holds requiring confirmation, and outstanding client balances / post-party cash settlement risks.',
+      marketing_roas:
+        'Focus on Meta Ads spend, Cost Per Result (CPR), CTR, month-over-month lead generation vs confirmed bookings conversion efficiency, and ROAS across campaigns and channels.',
+    };
+
+    const systemInstruction = [
+      'You are an expert Hotel Banquet, F&B Costing, and Revenue Intelligence Analyst for Crystal Plaza Hotel (Sharjah, UAE).',
+      `You are preparing a live intelligence briefing for ${userName} (Role: ${role}).`,
+      focusGuidance[focusArea] || focusGuidance.executive_overview,
+      'Strict Analytical Rules:',
+      '1. Ground every insight, metric, and recommendation strictly in the JSON snapshot provided. NEVER invent events, numbers, dates, or clients.',
+      '2. Cite exact booking numbers, client names, hall names ("First Floor Big Hall" or "Suite room Hall"), menu names, or YYYY-MM months when identifying trends or risks.',
+      '3. If a metric is 0 or sparse for a period, state that honestly rather than guessing.',
+      '4. Keep text crisp, executive, and actionable without generic filler.',
+      ...visibilityRules,
+    ].join('\n');
+
+    const analysis = await generateStructuredWithResilience(ai, {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `Analyze this live Crystal Plaza Hotel operational snapshot (Focus: ${focusArea}):\n\n${JSON.stringify(snapshot)}`,
+            },
+          ],
+        },
+      ],
+      systemInstruction,
+      thinkingLevel: ThinkingLevel.LOW,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          headline: {
+            type: Type.STRING,
+            description: 'Single crisp executive headline summarizing the primary finding.',
+          },
+          executiveSummary: {
+            type: Type.STRING,
+            description: '2-3 sentence executive summary citing concrete figures from the snapshot.',
+          },
+          healthStatus: {
+            type: Type.STRING,
+            description: 'Overall operational/financial health: strong, attention_needed, or critical.',
+          },
+          keyFindings: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                metric: {
+                  type: Type.STRING,
+                  description: 'Concise quantified value such as "54.2% Net Margin" or "1,420 AED Variance".',
+                },
+                sentiment: {
+                  type: Type.STRING,
+                  description: 'positive, warning, or risk',
+                },
+                detail: {
+                  type: Type.STRING,
+                  description: 'Specific data-backed explanation referencing real bookings, menus, or months.',
+                },
+              },
+              required: ['title', 'metric', 'sentiment', 'detail'],
+            },
+          },
+          recommendations: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                priority: {
+                  type: Type.STRING,
+                  description: 'high, medium, or low',
+                },
+                department: {
+                  type: Type.STRING,
+                  description: 'Responsible role/team e.g. Executive Chef, Accounts, F&B Supervisor, Marketing, General Management.',
+                },
+                action: { type: Type.STRING },
+                expectedImpact: { type: Type.STRING },
+              },
+              required: ['priority', 'department', 'action', 'expectedImpact'],
+            },
+          },
+          riskAlerts: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                severity: {
+                  type: Type.STRING,
+                  description: 'high or medium',
+                },
+                title: { type: Type.STRING },
+                detail: { type: Type.STRING },
+              },
+              required: ['severity', 'title', 'detail'],
+            },
+          },
+          suggestedQuestions: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: '4 concise follow-up questions the user can ask about this dataset.',
+          },
+        },
+        required: [
+          'headline',
+          'executiveSummary',
+          'healthStatus',
+          'keyFindings',
+          'recommendations',
+          'riskAlerts',
+          'suggestedQuestions',
+        ],
+      },
+    });
+
+    return res.json({
+      success: true,
+      generatedAt: new Date().toISOString(),
+      focusArea,
+      analysis,
+    });
+  } catch (err: any) {
+    console.error('AI Analysis Error:', err);
+    const { status, message } = extractFriendlyGeminiError(err, 'Failed to generate AI analysis.');
+    return res.status(status).json({ error: message });
+  }
+});
+
+app.post('/api/ai/ask', async (req: Request, res: Response) => {
+  try {
+    const {
+      question,
+      role = 'general_manager',
+      userName = 'Manager',
+      permissions = {},
+      snapshot,
+      history = [],
+    } = req.body as {
+      question?: string;
+      role?: string;
+      userName?: string;
+      permissions?: {
+        canViewProfits?: boolean;
+        canViewCosting?: boolean;
+        canViewRevenue?: boolean;
+      };
+      snapshot?: Record<string, any>;
+      history?: Array<{ question: string; answer: string }>;
+    };
+
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: 'Please enter a question for the AI analyst.' });
+    }
+    if (!snapshot || typeof snapshot !== 'object') {
+      return res.status(400).json({ error: 'Missing operational snapshot for Q&A.' });
+    }
+
+    const ai = getGeminiClient();
+
+    const canViewProfits = permissions.canViewProfits !== false;
+    const canViewCosting = permissions.canViewCosting !== false;
+    const canViewRevenue = permissions.canViewRevenue !== false;
+
+    const visibilityRules: string[] = [];
+    if (!canViewProfits) {
+      visibilityRules.push('User does NOT have permission to view net profit or profit margins. Politely explain role scope if asked about profits.');
+    }
+    if (!canViewCosting) {
+      visibilityRules.push('User does NOT have permission to view internal food cost, COGS, or purchasing prices. Politely explain role scope if asked.');
+    }
+    if (!canViewRevenue) {
+      visibilityRules.push('User does NOT have permission to view client billing revenue, selling prices, or receivables. Politely explain role scope if asked.');
+    }
+
+    const recentHistoryText = Array.isArray(history) && history.length > 0
+      ? `\nRecent Q&A context:\n${history
+          .slice(-4)
+          .map((h, i) => `Q${i + 1}: ${h.question}\nA${i + 1}: ${h.answer}`)
+          .join('\n\n')}`
+      : '';
+
+    const systemInstruction = [
+      'You are the Crystal Plaza Hotel AI Banquet & Costing Analyst.',
+      `Caller: ${userName} (${role}).`,
+      'Answer the user question directly and concisely using ONLY facts and numbers in the live hotel snapshot JSON.',
+      'Include exact figures (AED amounts, percentages, counts, dates, booking IDs, hall names) whenever available.',
+      'Format the answer as clear plain text paragraphs or numbered lines without markdown asterisks.',
+      ...visibilityRules,
+    ].join('\n');
+
+    const parsed = await generateStructuredWithResilience(ai, {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `Live Hotel Snapshot:\n${JSON.stringify(snapshot)}${recentHistoryText}\n\nUser Question: ${question.trim()}`,
+            },
+          ],
+        },
+      ],
+      systemInstruction,
+      thinkingLevel: ThinkingLevel.LOW,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          answer: {
+            type: Type.STRING,
+            description: 'Direct, data-backed plain text answer to the question.',
+          },
+          supportingMetrics: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                label: { type: Type.STRING },
+                value: { type: Type.STRING },
+              },
+              required: ['label', 'value'],
+            },
+            description: 'Up to 4 key numbers from the snapshot supporting the answer.',
+          },
+          followUpPrompts: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: '2-3 helpful follow-up questions.',
+          },
+        },
+        required: ['answer', 'supportingMetrics', 'followUpPrompts'],
+      },
+    });
+
+    return res.json({
+      success: true,
+      answeredAt: new Date().toISOString(),
+      result: parsed,
+    });
+  } catch (err: any) {
+    console.error('AI Ask Error:', err);
+    const { status, message } = extractFriendlyGeminiError(err, 'Failed to answer question.');
+    return res.status(status).json({ error: message });
+  }
+});
+
+// Ensure unmatched /api/* routes always return JSON rather than Vite/SPA HTML
+app.use('/api/*', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'API endpoint not found.' });
 });
 
 // ============================================================================

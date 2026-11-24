@@ -112,13 +112,14 @@ export class AppStorage {
         role: init.role,
         title: init.title,
         email: init.email,
+        avatar: init.avatar,
         permissions: { ...init.permissions },
       };
     });
   }
 
   static getActiveUser(): UserProfile {
-    const user = loadFromStorage(STORAGE_KEYS.ACTIVE_USER, INITIAL_USERS[1]); // Default to Eleanor Vance (GM)
+    const user = loadFromStorage(STORAGE_KEYS.ACTIVE_USER, INITIAL_USERS[1]); // Default to Abhishek Kumar (GM)
     const users = this.getUsers();
     return users.find(u => u.id === user.id) || users[0];
   }
@@ -128,7 +129,20 @@ export class AppStorage {
   }
 
   static getHalls(): BanquetHall[] {
-    return loadFromStorage(STORAGE_KEYS.HALLS, INITIAL_HALLS);
+    const loaded = loadFromStorage<BanquetHall[]>(STORAGE_KEYS.HALLS, INITIAL_HALLS);
+    const validIds = new Set(INITIAL_HALLS.map(h => h.id));
+    const isAlreadyMigrated =
+      Array.isArray(loaded) &&
+      loaded.length === INITIAL_HALLS.length &&
+      loaded.every(h => validIds.has(h.id) && (h.branch === 'CPH1' || h.branch === 'CPH2')) &&
+      loaded[0]?.name === INITIAL_HALLS[0].name &&
+      loaded[1]?.name === INITIAL_HALLS[1].name;
+
+    if (!isAlreadyMigrated) {
+      saveToStorage(STORAGE_KEYS.HALLS, INITIAL_HALLS);
+      return INITIAL_HALLS;
+    }
+    return loaded;
   }
 
   static setHalls(halls: BanquetHall[]): void {
@@ -371,7 +385,8 @@ export class AppStorage {
     // Ensure financial calculations, payment tracking, and locks are fully populated
     merged = merged.map(b => {
       const initMatch = INITIAL_BOOKINGS.find(ib => ib.id === b.id);
-      let updatedBooking = { ...b };
+      const normalizedBranch: 'CPH1' | 'CPH2' = b.branch === 'CPH2' ? 'CPH2' : 'CPH1';
+      let updatedBooking = { ...b, branch: normalizedBranch };
 
       if (initMatch && initMatch.chefPartyEntries && (!b.chefPartyEntries || b.chefPartyEntries.length === 0)) {
         updatedBooking = {
@@ -385,12 +400,12 @@ export class AppStorage {
         };
       }
 
-      // Sync forwarded_to_accounts if initial booking was marked as chef approved awaiting Arun
+      // Sync forwarded_to_accounts if initial booking was marked as chef approved awaiting Accounts
       if (initMatch && initMatch.costingStatus === 'forwarded_to_accounts' && updatedBooking.costingStatus !== 'costed_by_arun' && updatedBooking.costingStatus !== 'approved') {
         updatedBooking.costingStatus = 'forwarded_to_accounts';
         updatedBooking.chefApproved = true;
         updatedBooking.chefApprovedAt = initMatch.chefApprovedAt || updatedBooking.chefApprovedAt || '2026-10-08T14:30:00Z';
-        updatedBooking.chefApprovedBy = initMatch.chefApprovedBy || 'Chef Karim Zayani';
+        updatedBooking.chefApprovedBy = initMatch.chefApprovedBy || 'Executive Chef';
         updatedBooking.chefStampSerial = initMatch.chefStampSerial || updatedBooking.chefStampSerial;
         updatedBooking.partyEnded = true;
       }
@@ -406,7 +421,7 @@ export class AppStorage {
             paymentType: 'advance',
             paymentMode: (updatedBooking.advancePaymentMode as any) || 'Cash',
             receiptNumber: `CPH-RCP-${updatedBooking.bookingNumber.replace(/[^0-9]/g, '')}-01`,
-            receivedBy: updatedBooking.fnbRepresentative || "Francis D'Souza",
+            receivedBy: updatedBooking.fnbRepresentative || 'F&B Supervisor',
             notes: 'Advance booking deposit received at confirmation',
             createdAt: updatedBooking.createdAt || new Date().toISOString(),
           }
@@ -474,12 +489,12 @@ export class AppStorage {
     saveToStorage(STORAGE_KEYS.BOOKINGS, normalized);
   }
 
-  // Check if a date is already booked (One party per date rule)
+  // Check if a date + hall is already booked (One party per hall per date rule)
   static checkDateConflict(
     eventDate: string, 
     excludeBookingId?: string, 
     hallId?: string, 
-    isMultiHall: boolean = false
+    isMultiHall: boolean = true
   ): { hasConflict: boolean; conflictBooking?: BookingEvent } {
     const all = this.getBookings();
     const conflict = all.find(b => {
@@ -577,7 +592,7 @@ export class AppStorage {
       cancellationReason: policy.reason,
       cancellationPolicy: policy,
       cancelledAt: new Date().toISOString(),
-      cancelledBy: user?.name || policy.cancelledBy || "Francis D'Souza",
+      cancelledBy: user?.name || policy.cancelledBy || 'F&B Supervisor',
       isTentative: false,
     };
 
@@ -647,7 +662,7 @@ export class AppStorage {
           ...b,
           lockDetails: {
             isLocked: false,
-            unlockApprovedBy: gmUser?.name || 'Eleanor Vance (GM)',
+            unlockApprovedBy: gmUser?.name || 'Abhishek Kumar (GM)',
             unlockApprovedAt: new Date().toISOString(),
           }
         };
@@ -680,7 +695,7 @@ export class AppStorage {
         id: 'notif_init_1',
         timestamp: '2026-10-14 09:00',
         title: 'Banquet Scheduled: Mr. Betsy',
-        message: 'Supervisor Francis D\'Souza scheduled celebration party on Oct 14, 2026 (30 guests, Grand Ballroom).',
+        message: 'F&B Supervisor scheduled celebration party on Oct 14, 2026 (30 guests, First Floor Big Hall).',
         type: 'new_booking',
         targetRoles: 'all',
         bookingId: 'bk_betsy_301',
@@ -700,15 +715,15 @@ export class AppStorage {
     const loaded = loadFromStorage(STORAGE_KEYS.NOTIFICATIONS, defaults);
     
     // Automatically guarantee notification exists for:
-    // 1. Francis: parties whose date has arrived/ended and are awaiting confirmation
-    // 2. Chef Karim: parties ended by Francis awaiting kitchen quantities
-    // 3. Accounts Arun: parties forwarded by Chef awaiting purchasing prices
+    // 1. F&B Supervisor: parties whose date has arrived/ended and are awaiting confirmation
+    // 2. Executive Chef: parties ended by F&B Supervisor awaiting kitchen quantities
+    // 3. Accounts: parties forwarded by Executive Chef awaiting purchasing prices
     try {
       const rawBookings = loadFromStorage<BookingEvent[]>(STORAGE_KEYS.BOOKINGS, INITIAL_BOOKINGS);
       let updatedList = [...loaded];
       let hasNew = false;
 
-      // 1. Prompt for Francis (F&B Supervisor)
+      // 1. Prompt for F&B Supervisor
       const unconfirmedEnded = rawBookings.filter(b => 
         b.eventDate <= '2026-10-14' && 
         !b.partyEnded && 
@@ -721,7 +736,7 @@ export class AppStorage {
             id: `notif_confirm_ended_${pb.id}`,
             timestamp: `${pb.eventDate} 22:00`,
             title: `Party Ended? Confirm Conclusion: ${pb.clientName}`,
-            message: `The party date for ${pb.clientName} (${pb.bookingNumber}) on ${pb.eventDate} has concluded. Do you want to confirm the party has ended? Confirming will forward to Chef Karim.`,
+            message: `The party date for ${pb.clientName} (${pb.bookingNumber}) on ${pb.eventDate} has concluded. Do you want to confirm the party has ended? Confirming will forward to Executive Chef.`,
             type: 'party_ended_confirm_prompt',
             targetRoles: ['fnb_supervisor', 'banquet_manager', 'general_manager'],
             bookingId: pb.id,
@@ -732,7 +747,7 @@ export class AppStorage {
         }
       });
 
-      // 2. Chef Karim: parties ended by Francis awaiting kitchen usage
+      // 2. Executive Chef: parties ended by F&B Supervisor awaiting kitchen usage
       const pendingChefCostings = rawBookings.filter(b => 
         b.hasFoodFromHotel &&
         b.partyEnded &&
@@ -747,7 +762,7 @@ export class AppStorage {
             id: `notif_chef_req_${pb.id}`,
             timestamp: pb.partyEndedAt ? pb.partyEndedAt.replace('T', ' ').substring(0, 16) : `${pb.eventDate} 23:00`,
             title: `Kitchen Costing Required: ${pb.clientName}`,
-            message: `Francis confirmed party ended for ${pb.clientName} (${pb.bookingNumber}). Please log actual ingredient usage in your 'Costing Required' tab and forward to Accounts.`,
+            message: `F&B Supervisor confirmed party ended for ${pb.clientName} (${pb.bookingNumber}). Please log actual ingredient usage in your 'Costing Required' tab and forward to Accounts.`,
             type: 'chef_action_required',
             targetRoles: ['executive_chef', 'general_manager'],
             bookingId: pb.id,
@@ -758,7 +773,7 @@ export class AppStorage {
         }
       });
 
-      // 3. Accounts Arun: parties forwarded by Chef awaiting purchasing prices
+      // 3. Accounts: parties forwarded by Executive Chef awaiting purchasing prices
       const pendingAccountsCostings = rawBookings.filter(b => 
         (b.costingStatus === 'forwarded_to_accounts' || (b.chefApproved && !b.arunCostedAt && b.costingStatus !== 'costed_by_arun')) &&
         b.hasFoodFromHotel
@@ -770,7 +785,7 @@ export class AppStorage {
             id: `notif_pending_costing_${pb.id}`,
             timestamp: pb.chefApprovedAt ? pb.chefApprovedAt.replace('T', ' ').substring(0, 16) : '2026-10-14 11:30',
             title: `Purchasing Costing Required: ${pb.clientName}`,
-            message: `Chef Karim submitted ingredient quantities for ${pb.clientName} (${pb.bookingNumber}). Awaiting your purchase price costing in your 'Costing Required' tab.`,
+            message: `Executive Chef submitted ingredient quantities for ${pb.clientName} (${pb.bookingNumber}). Awaiting your purchase price costing in your 'Costing Required' tab.`,
             type: 'chef_finished',
             targetRoles: ['accounts_executive', 'general_manager'],
             bookingId: pb.id,
@@ -781,8 +796,7 @@ export class AppStorage {
         }
       });
 
-      // 4. Francis (F&B Supervisor): Mandatory Balance Settlement Required for Ended Parties!
-      // User request: "make sure to send notification for francis after the party ends he have to settle balance that is must"
+      // 4. F&B Supervisor: Mandatory Balance Settlement Required for Ended Parties!
       const todayIso = new Date().toISOString().substring(0, 10);
       const endedPartiesWithBalance = rawBookings.filter(b => {
         if (b.status === 'cancelled') return false;
@@ -802,7 +816,7 @@ export class AppStorage {
             id: `notif_mandatory_settle_${pb.id}`,
             timestamp: pb.partyEndedAt ? pb.partyEndedAt.replace('T', ' ').substring(0, 16) : `${pb.eventDate} 23:15`,
             title: `⚠️ Mandatory: Settle Balance for ${pb.clientName}`,
-            message: `Party for ${pb.clientName} (${pb.bookingNumber}) on ${pb.eventDate} has ended. Outstanding balance of AED ${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} must be collected and settled immediately by Francis. This is mandatory.`,
+            message: `Party for ${pb.clientName} (${pb.bookingNumber}) on ${pb.eventDate} has ended. Outstanding balance of AED ${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} must be collected and settled immediately by F&B Supervisor. This is mandatory.`,
             type: 'mandatory_settle_balance',
             targetRoles: ['fnb_supervisor', 'banquet_manager', 'general_manager'],
             bookingId: pb.id,
@@ -852,12 +866,15 @@ export class AppStorage {
     const loaded = loadFromStorage<Invoice[]>(STORAGE_KEYS.INVOICES, INITIAL_INVOICES);
     const existingIds = new Set(loaded.map(i => i.id));
     const missing = INITIAL_INVOICES.filter(i => !existingIds.has(i.id));
-    if (missing.length > 0) {
-      const merged = [...loaded, ...missing];
+    const merged = (missing.length > 0 ? [...loaded, ...missing] : loaded).map(inv => ({
+      ...inv,
+      branch: (inv.branch === 'CPH2' ? 'CPH2' : 'CPH1') as 'CPH1' | 'CPH2',
+    }));
+    const changed = missing.length > 0 || loaded.some(inv => inv.branch !== 'CPH1' && inv.branch !== 'CPH2');
+    if (changed) {
       saveToStorage(STORAGE_KEYS.INVOICES, merged);
-      return merged;
     }
-    return loaded;
+    return merged;
   }
 
   static setInvoices(invoices: Invoice[]): void {
@@ -931,7 +948,7 @@ export class AppStorage {
   static exportEncryptedFile(): { blob: Blob; filename: string } {
     const fullState = {
       exportedAt: new Date().toISOString(),
-      system: 'AuraBanquets Hotel Suite v2.4',
+      system: 'Crystal Plaza Banquets Hotel Suite v2.4',
       users: this.getUsers(),
       halls: this.getHalls(),
       ingredients: this.getIngredients(),
@@ -942,7 +959,7 @@ export class AppStorage {
     };
     const encryptedContent = encryptPayload(fullState);
     const blob = new Blob([encryptedContent], { type: 'application/json' });
-    const filename = `aurabanquets_vault_backup_${new Date().toISOString().substring(0, 10)}.enc.json`;
+    const filename = `crystal_plaza_banquets_vault_backup_${new Date().toISOString().substring(0, 10)}.enc.json`;
     return { blob, filename };
   }
 
@@ -1071,7 +1088,24 @@ export class AppStorage {
       saveToStorage(STORAGE_KEYS.BANQUET_LEADS, INITIAL_BANQUET_LEADS);
       return INITIAL_BANQUET_LEADS;
     }
-    return loaded;
+    const validNames = new Set(INITIAL_HALLS.map(h => h.name));
+    let changed = false;
+    const normalized = loaded.map(lead => {
+      if (lead.hallPreference && !validNames.has(lead.hallPreference)) {
+        changed = true;
+        const lower = lead.hallPreference.toLowerCase();
+        const mapped =
+          lower.includes('suite') || lower.includes('dana') || lower.includes('terrace') || lower.includes('emerald')
+            ? 'Suite room Hall'
+            : 'First Floor Big Hall';
+        return { ...lead, hallPreference: mapped };
+      }
+      return lead;
+    });
+    if (changed) {
+      saveToStorage(STORAGE_KEYS.BANQUET_LEADS, normalized);
+    }
+    return normalized;
   }
 
   static saveBanquetLeads(leads: BanquetLead[]): void {
@@ -1137,7 +1171,13 @@ export class AppStorage {
     const halls = this.getHalls();
     const packages = this.getPackages();
 
-    const selectedHall = halls.find(h => h.id === extra?.hallId) || halls[0];
+    const selectedHall =
+      halls.find(h => h.id === extra?.hallId) ||
+      halls.find(h => h.name.toLowerCase() === (lead.hallPreference || '').toLowerCase()) ||
+      ((lead.hallPreference || '').toLowerCase().includes('suite')
+        ? halls.find(h => h.id === 'hall_suite_room')
+        : halls[0]) ||
+      halls[0];
     const selectedPackage = packages.find(p => p.id === extra?.packageId) || packages[0];
     const eventDate = lead.targetEventDate || new Date().toISOString().substring(0, 10);
     const guestCount = lead.estimatedGuests || 0;
@@ -1151,7 +1191,7 @@ export class AppStorage {
     const newBooking: BookingEvent = {
       id: newBookingId,
       bookingNumber: bookingNum,
-      branch: 'Crystal Plaza (CPH)',
+      branch: 'CPH1',
       clientName: lead.clientName,
       clientPhone: lead.phone,
       clientEmail: lead.email,
@@ -1192,7 +1232,7 @@ export class AppStorage {
       costingStatus: 'not_started',
       status: 'confirmed',
       venueFloor: lead.hallPreference || selectedHall?.name || '',
-      fnbRepresentative: user?.name || "Francis D'Souza",
+      fnbRepresentative: user?.name || 'F&B Supervisor',
       leadSource: lead.source,
       payments: deposit > 0 ? [
         {
@@ -1203,7 +1243,7 @@ export class AppStorage {
           paymentType: 'advance',
           paymentMode: 'Cash',
           receiptNumber: `CPH-RCP-${Date.now().toString().slice(-5)}`,
-          receivedBy: user?.name || "Francis D'Souza",
+          receivedBy: user?.name || 'F&B Supervisor',
           notes: 'Advance deposit upon conversion from inquiry pipeline',
           createdAt: new Date().toISOString(),
         }

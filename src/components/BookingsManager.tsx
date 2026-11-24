@@ -70,6 +70,8 @@ interface BookingsManagerProps {
   onOpenA4Sheet: (booking: BookingEvent, initialPage?: 1 | 2 | 3) => void;
   bookingModalOpen: boolean;
   setBookingModalOpen: (open: boolean) => void;
+  createBookingTrigger?: boolean;
+  onConsumeCreateTrigger?: () => void;
 }
 
 export const BookingsManager: React.FC<BookingsManagerProps> = ({
@@ -87,10 +89,44 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
   onOpenA4Sheet,
   bookingModalOpen,
   setBookingModalOpen,
+  createBookingTrigger,
+  onConsumeCreateTrigger,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [hallFilter, setHallFilter] = useState<'All' | 'First Floor Big Hall' | 'Suite Room Hall'>('All');
+  const [hallFilterError, setHallFilterError] = useState<string | null>(null);
+  const [formValidationErrors, setFormValidationErrors] = useState<string[]>([]);
+
+  const handleHallFilterChange = (nextValue: string) => {
+    const validFilters = ['All', 'First Floor Big Hall', 'Suite Room Hall'] as const;
+    if ((validFilters as readonly string[]).includes(nextValue)) {
+      setHallFilter(nextValue as 'All' | 'First Floor Big Hall' | 'Suite Room Hall');
+      setHallFilterError(null);
+    } else {
+      setHallFilter('All');
+      setHallFilterError(`Invalid hall filter "${nextValue}". Reset to All halls.`);
+    }
+  };
+
+  const matchesHallFilter = (b: BookingEvent): boolean => {
+    if (hallFilter === 'All') return true;
+    const normalizedName = (b.hallName || '').trim().toLowerCase();
+    const normalizedFloor = (b.venueFloor || '').trim().toLowerCase();
+    if (hallFilter === 'First Floor Big Hall') {
+      return (
+        b.hallId === 'hall_first_floor_big' ||
+        normalizedName === 'first floor big hall' ||
+        normalizedFloor === 'first floor big hall'
+      );
+    }
+    return (
+      b.hallId === 'hall_suite_room' ||
+      normalizedName === 'suite room hall' ||
+      normalizedFloor === 'suite room hall'
+    );
+  };
 
   // Primary Tabs: Scheduled Banquets, Date Availability & Booking Schedule, Completed & Costed, Cancelled Parties Log
   const [mainTab, setMainTab] = useState<'scheduled' | 'availability' | 'costed' | 'cancelled'>(initialSubTab || 'scheduled');
@@ -143,7 +179,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
   const [selectedPostingReportBooking, setSelectedPostingReportBooking] = useState<BookingEvent | null>(null);
 
   // Form State
-  const [formBranch, setFormBranch] = useState<HotelBranch>('Crystal Plaza (CPH)');
+  const [formBranch, setFormBranch] = useState<HotelBranch>('CPH1');
   const [formClientName, setFormClientName] = useState('');
   const [formClientPhone, setFormClientPhone] = useState('');
   const [formClientEmail, setFormClientEmail] = useState(''); // Optional!
@@ -299,6 +335,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
 
   // Open Edit Form
   const openEditModal = (b: BookingEvent) => {
+    setFormValidationErrors([]);
     setEditingBooking(b);
     setFormBranch(b.branch);
     setFormClientName(b.clientName);
@@ -306,14 +343,20 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
     setFormClientEmail(b.clientEmail || '');
     setFormClientCompany(b.clientCompany || '');
     setFormLeadSource(b.leadSource || 'Instagram Ad Campaign');
-    setFormHallId(b.hallId);
+    const matchedHall =
+      halls.find(h => h.id === b.hallId) ||
+      halls.find(h => h.name.toLowerCase() === (b.hallName || '').toLowerCase()) ||
+      ((b.hallName || b.venueFloor || '').toLowerCase().includes('suite')
+        ? halls.find(h => h.id === 'hall_suite_room')
+        : halls[0]);
+    setFormHallId(matchedHall?.id || halls[0]?.id || '');
     setFormHallOffer(b.hallOffer || 'free_with_food');
     setFormHallSection(b.hallSection || 'Full Banquet Hall');
 
     // Load exact Operational Setup & Function Prospectus fields logged on booking
     setFormEventTimeSpan(b.eventTimeSpan || '');
     setFormFoodPickupTime(b.foodPickupTime || '');
-    setFormVenueFloor(b.venueFloor || b.hallName || '');
+    setFormVenueFloor(b.venueFloor || b.hallName || matchedHall?.name || '');
     setFormSoundSystem(
       b.soundSystem === true || String(b.soundSystem).toLowerCase() === 'yes'
         ? 'Yes'
@@ -379,8 +422,9 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
 
   // Open Create Form (Clean blank state — zero sample data)
   const openCreateModal = () => {
+    setFormValidationErrors([]);
     setEditingBooking(null);
-    setFormBranch('Crystal Plaza (CPH)');
+    setFormBranch('CPH1');
     setFormClientName('');
     setFormClientPhone('');
     setFormClientEmail('');
@@ -393,7 +437,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
     // Clean Function Prospectus fields (Entered strictly by Francis)
     setFormEventTimeSpan('');
     setFormFoodPickupTime('');
-    setFormVenueFloor('');
+    setFormVenueFloor(halls[0]?.name || 'First Floor Big Hall');
     setFormSoundSystem('');
     setFormProjector('');
     setFormProjectorNotes('');
@@ -430,6 +474,13 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
     setFormSpecialRequests('');
     setBookingModalOpen(true);
   };
+
+  useEffect(() => {
+    if (createBookingTrigger) {
+      openCreateModal();
+      onConsumeCreateTrigger?.();
+    }
+  }, [createBookingTrigger]);
 
   // Menu Selection & Food Item Handlers for Francis
   const handleMenuSelect = (menuId: string) => {
@@ -508,11 +559,106 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
 
   // Rule validations
   const isMinGuestsValid = formGuestCount >= 30;
+  const isMaxHallCapacityValid = !selectedHall || formGuestCount <= selectedHall.capacityMax;
+  const parsedAdultsPreview = formAdultsCount.trim() !== '' ? parseInt(formAdultsCount, 10) : 0;
+  const parsedKidsPreview = formKidsCount.trim() !== '' ? parseInt(formKidsCount, 10) : 0;
+  const isGuestSplitValid =
+    (formAdultsCount.trim() === '' || parsedAdultsPreview >= 0) &&
+    (formKidsCount.trim() === '' || parsedKidsPreview >= 0) &&
+    parsedAdultsPreview + parsedKidsPreview <= formGuestCount;
   const minimumAllowedFloor = Math.max(1500, formGuestCount * 50);
   const isFloorDiscountValid = !isFoodIncluded || subtotalRev >= minimumAllowedFloor;
 
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
+    const errors: string[] = [];
+
+    // 1. Role Permission Check: GM and Chef cannot create or edit
+    if (currentUser.role === 'general_manager') {
+      errors.push('Permission Denied: General Manager has View-Only access and cannot create or edit banquet bookings.');
+    }
+    if (currentUser.role === 'executive_chef') {
+      errors.push('Permission Denied: Executive Chef cannot create or edit banquet bookings.');
+    }
+
+    // 2. Check if editing a locked record
+    if (editingBooking && editingBooking.lockDetails?.isLocked && !editingBooking.lockDetails?.unlockApprovedAt) {
+      errors.push(`Record Locked: This banquet record was locked after ${editingBooking.lockDetails.lockStage === 'chef_finished' ? 'Chef finalized quantities' : 'Accounts finalized costing'}. Any later change requires General Manager approval.`);
+    }
+
+    // 3. Hall Selection Validation (must be one of the 2 configured halls)
+    const activeHall = halls.find(h => h.id === formHallId);
+    if (!activeHall) {
+      errors.push('Please select a valid Banquet Hall (First Floor Big Hall or Suite room Hall).');
+    }
+
+    // 4. Client Contact & Schedule Validations
+    if (formClientName.trim().length < 2) {
+      errors.push('Client Full Name must be at least 2 characters.');
+    }
+    const phoneDigits = formClientPhone.replace(/[^0-9]/g, '');
+    if (phoneDigits.length < 7) {
+      errors.push('Please enter a valid Client Phone number (at least 7 digits).');
+    }
+    if (formClientEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formClientEmail.trim())) {
+      errors.push('Please enter a valid Client Email address or leave the optional email blank.');
+    }
+    if (!formBookingDate || !/^\d{4}-\d{2}-\d{2}$/.test(formBookingDate)) {
+      errors.push('Please select a valid Booking Registration Date.');
+    }
+    if (!formEventDate || !/^\d{4}-\d{2}-\d{2}$/.test(formEventDate)) {
+      errors.push('Please select a valid Party / Celebration Date.');
+    }
+    if (!formEventType.trim()) {
+      errors.push('Please enter the Function Type (e.g., Birthday Party, Wedding Reception).');
+    }
+
+    // 5. Guest Count & Hall Capacity Validations
+    if (!Number.isFinite(formGuestCount) || formGuestCount < 1) {
+      errors.push('Total Guest Count must be at least 1.');
+    } else if (activeHall && formGuestCount > activeHall.capacityMax) {
+      errors.push(
+        `Capacity Exceeded: "${activeHall.name}" accommodates up to ${activeHall.capacityMax} guests (entered ${formGuestCount}). Please switch to "First Floor Big Hall" or reduce guest count.`
+      );
+    }
+    if (!isGuestSplitValid) {
+      errors.push('Adults + Kids breakdown cannot contain negative values or exceed Total Guest Count.');
+    }
+
+    // 6. Financial & Advance Deposit Validations
+    if (isFoodIncluded && (!Number.isFinite(formFoodPriceCharged) || formFoodPriceCharged <= 0)) {
+      errors.push('Please enter a valid positive Food Price Per Guest for "Free Hall with Food" bookings.');
+    }
+    if (formDiscount < 0) {
+      errors.push('Discount amount cannot be negative.');
+    }
+    const grossBeforeDiscount = calculatedHallCharged + foodRev + existingBev + effectiveDecorCharged + existingExtras;
+    if (formDiscount > grossBeforeDiscount) {
+      errors.push(`Discount (${formatCurrency(formDiscount)}) cannot exceed gross charges (${formatCurrency(grossBeforeDiscount)}).`);
+    }
+    if (formDeposit < 0) {
+      errors.push('Advance Paid cannot be negative.');
+    } else if (subtotalRev > 0 && formDeposit > subtotalRev + 0.01) {
+      errors.push(`Advance Paid (${formatCurrency(formDeposit)}) cannot exceed Total Bill (${formatCurrency(subtotalRev)}).`);
+    }
+
+    // 7. Booking Rule: One party per date. If a date is booked, reject new bookings with a clear message.
+    const dateConflict = formEventDate
+      ? bookings.find(b =>
+          b.status !== 'cancelled' &&
+          b.eventDate === formEventDate &&
+          (!editingBooking || b.id !== editingBooking.id)
+        )
+      : undefined;
+    if (dateConflict) {
+      errors.push(`Date Conflict: ${formEventDate} is already booked for "${dateConflict.clientName}" (${dateConflict.bookingNumber} • ${dateConflict.hallName}). Only one party per date is permitted.`);
+    }
+
+    if (errors.length > 0) {
+      setFormValidationErrors(errors);
+      return;
+    }
+    setFormValidationErrors([]);
 
     const selectedMenuObj = getBanquetMenuById(formMenuId) || BANQUET_MENUS[0];
 
@@ -564,33 +710,6 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
       desserts,
       complementary: parsedComplementary,
     };
-
-    // 1. Role Permission Check: GM cannot create or edit
-    if (currentUser.role === 'general_manager') {
-      alert('🔒 Permission Denied: General Manager has View-Only access. Cannot create or edit banquet bookings.');
-      return;
-    }
-    if (currentUser.role === 'executive_chef') {
-      alert('🔒 Permission Denied: Executive Chef cannot create or edit banquet bookings.');
-      return;
-    }
-
-    // 2. Booking Rule: One party per date. If a date is booked, reject new bookings with a clear message.
-    const dateConflict = bookings.find(b => 
-      b.status !== 'cancelled' && 
-      b.eventDate === formEventDate && 
-      (!editingBooking || b.id !== editingBooking.id)
-    );
-    if (dateConflict) {
-      alert(`⛔ Booking Rejected: Date ${formEventDate} is already booked for "${dateConflict.clientName}" (${dateConflict.bookingNumber}). Only one party per date is permitted. Please select another date.`);
-      return;
-    }
-
-    // 3. Check if editing a locked record
-    if (editingBooking && editingBooking.lockDetails?.isLocked && !editingBooking.lockDetails?.unlockApprovedAt) {
-      alert(`🔒 Record Locked: This banquet record was locked after ${editingBooking.lockDetails.lockStage === 'chef_finished' ? 'Chef finalized quantities' : 'Accounts finalized costing'}. Any later change requires General Manager approval.`);
-      return;
-    }
 
     const totalBillPayable = parseFloat(subtotalRev.toFixed(2));
     const depositEntered = parseFloat((formDeposit || 0).toFixed(2));
@@ -974,10 +1093,10 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
     b.status !== 'cancelled'
   );
 
-  // Tab Dataset Counts
-  const scheduledPartiesCount = bookings.filter(b => b.status !== 'cancelled' && !b.partyEnded && b.status !== 'completed').length;
-  const costedPartiesCount = bookings.filter(b => b.costingStatus === 'costed_by_arun' || b.postingReportGenerated || (b.status === 'completed' && b.partyEnded)).length;
-  const cancelledPartiesCount = bookings.filter(b => b.status === 'cancelled').length;
+  // Tab Dataset Counts (restricted by active Hall filter)
+  const scheduledPartiesCount = bookings.filter(b => b.status !== 'cancelled' && !b.partyEnded && b.status !== 'completed' && matchesHallFilter(b)).length;
+  const costedPartiesCount = bookings.filter(b => (b.costingStatus === 'costed_by_arun' || b.postingReportGenerated || (b.status === 'completed' && b.partyEnded)) && matchesHallFilter(b)).length;
+  const cancelledPartiesCount = bookings.filter(b => b.status === 'cancelled' && matchesHallFilter(b)).length;
 
   // Active dataset according to mainTab
   let tabBookings = bookings;
@@ -991,7 +1110,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
     tabBookings = bookings.filter(b => b.status !== 'cancelled');
   }
 
-  // Apply search, branch, and status filters
+  // Apply search, hall, branch, and status filters
   const filteredBookingsRaw = tabBookings.filter(b => {
     const matchesSearch = 
       b.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -999,10 +1118,11 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
       b.hallName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       b.eventType.toLowerCase().includes(searchTerm.toLowerCase());
     
+    const matchesHall = matchesHallFilter(b);
     const matchesBranch = branchFilter === 'all' || b.branch === branchFilter;
     const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
 
-    return matchesSearch && matchesBranch && matchesStatus;
+    return matchesSearch && matchesHall && matchesBranch && matchesStatus;
   });
 
   // Popular Global Sorting: Default is "Event Date: Ending Soonest First" ("the parties who ends first should come first")
@@ -1328,62 +1448,88 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
 
         {/* Global Popular Filter & Sort Toolbar */}
         {mainTab !== 'availability' && (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="relative">
-              <Search className="w-4 h-4 text-[#5A6F66] absolute left-3.5 top-3" />
-              <input
-                type="text"
-                placeholder="Search by client, BEO number, hall..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl pl-10 pr-4 py-2.5 text-xs text-[#192A24] placeholder-[#7D948A] focus:outline-none focus:border-[#236B50] focus:ring-1 focus:ring-[#236B50]"
-              />
+          <div className="mt-4 space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="relative">
+                <Search className="w-4 h-4 text-[#5A6F66] absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search by client, BEO number, hall..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl pl-10 pr-4 py-2.5 text-xs text-[#192A24] placeholder-[#7D948A] focus:outline-none focus:border-[#236B50] focus:ring-1 focus:ring-[#236B50]"
+                />
+              </div>
+
+              <div>
+                <select
+                  aria-label="Filter bookings by hall"
+                  value={hallFilter}
+                  onChange={(e) => handleHallFilterChange(e.target.value)}
+                  className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-bold focus:outline-none focus:border-[#236B50] focus:ring-1 focus:ring-[#236B50] cursor-pointer"
+                >
+                  <option value="All">Hall: All</option>
+                  <option value="First Floor Big Hall">First Floor Big Hall</option>
+                  <option value="Suite Room Hall">Suite Room Hall</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-medium focus:outline-none focus:border-[#236B50]"
+                >
+                  <option value="all">All Branches</option>
+                  <option value="CPH1">CPH1</option>
+                  <option value="CPH2">CPH2</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-medium focus:outline-none focus:border-[#236B50]"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="in_preparation">In Preparation</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-bold focus:outline-none focus:border-[#236B50]"
+                >
+                  <option value="event_date_soonest">Sort: Event Date (Ending Soonest First)</option>
+                  <option value="event_date_latest">Sort: Event Date (Furthest First)</option>
+                  <option value="booking_date_newest">Sort: Booking Date (Newest First)</option>
+                  <option value="guest_count_desc">Sort: Guests (Highest to Lowest)</option>
+                  <option value="outstanding_desc">Sort: Highest Balance Due First</option>
+                  <option value="revenue_desc">Sort: Highest Total Revenue</option>
+                  <option value="status">Sort: By Status</option>
+                </select>
+              </div>
             </div>
 
-            <div>
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-medium focus:outline-none focus:border-[#236B50]"
-              >
-                <option value="all">All Branches</option>
-                <option value="Crystal Plaza (CPH)">Crystal Plaza (CPH)</option>
-                <option value="Qasmia (Casmia CPH)">Qasmia (Casmia CPH)</option>
-                <option value="CPH 9 (Crystal Plaza)">CPH 9 (Crystal Plaza)</option>
-                <option value="Najas CPH">Najas CPH</option>
-              </select>
-            </div>
-
-            <div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-medium focus:outline-none focus:border-[#236B50]"
-              >
-                <option value="all">All Statuses</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="in_preparation">In Preparation</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-
-            <div>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-full bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-bold focus:outline-none focus:border-[#236B50]"
-              >
-                <option value="event_date_soonest">Sort: Event Date (Ending Soonest First)</option>
-                <option value="event_date_latest">Sort: Event Date (Furthest First)</option>
-                <option value="booking_date_newest">Sort: Booking Date (Newest First)</option>
-                <option value="guest_count_desc">Sort: Guests (Highest to Lowest)</option>
-                <option value="outstanding_desc">Sort: Highest Balance Due First</option>
-                <option value="revenue_desc">Sort: Highest Total Revenue</option>
-                <option value="status">Sort: By Status</option>
-              </select>
-            </div>
+            {hallFilterError && (
+              <div className="px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-2">
+                <span>{hallFilterError}</span>
+                <button
+                  type="button"
+                  onClick={() => setHallFilterError(null)}
+                  className="text-rose-700 hover:text-rose-950 font-bold cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1403,10 +1549,11 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
         
         const activeMonthBookings = bookings.filter(b => 
           b.status !== 'cancelled' && 
-          b.eventDate.startsWith(availabilityMonth)
+          b.eventDate.startsWith(availabilityMonth) &&
+          matchesHallFilter(b)
         );
 
-        const allScheduledBanquets = bookings.filter(b => b.status !== 'cancelled' && !b.partyEnded && b.status !== 'completed')
+        const allScheduledBanquets = bookings.filter(b => b.status !== 'cancelled' && !b.partyEnded && b.status !== 'completed' && matchesHallFilter(b))
           .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
         const monthName = new Date(year, monthIndex, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -1459,27 +1606,40 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                   </p>
                 </div>
 
-                {/* Month Navigator */}
-                <div className="flex items-center space-x-2 bg-[#F6FAF8] border border-[#D5E5DE] p-1.5 rounded-2xl shrink-0 self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={handlePrevMonth}
-                    className="p-2 rounded-xl hover:bg-white text-[#236B50] transition-colors cursor-pointer"
-                    title="Previous Month"
+                {/* Month & Hall Navigator */}
+                <div className="flex flex-wrap items-center gap-2 shrink-0 self-start sm:self-auto">
+                  <select
+                    aria-label="Filter calendar by hall"
+                    value={hallFilter}
+                    onChange={(e) => handleHallFilterChange(e.target.value)}
+                    className="bg-[#F6FAF8] border border-[#D5E5DE] rounded-2xl px-3.5 py-2.5 text-xs text-[#192A24] font-bold focus:outline-none focus:border-[#236B50] cursor-pointer"
                   >
-                    <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
-                  </button>
-                  <span className="text-xs font-black text-[#192A24] px-3 font-['Plus_Jakarta_Sans'] min-w-[130px] text-center">
-                    {monthName}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleNextMonth}
-                    className="p-2 rounded-xl hover:bg-white text-[#236B50] transition-colors cursor-pointer"
-                    title="Next Month"
-                  >
-                    <ChevronRight className="w-4 h-4 stroke-[2.5]" />
-                  </button>
+                    <option value="All">Hall: All</option>
+                    <option value="First Floor Big Hall">First Floor Big Hall</option>
+                    <option value="Suite Room Hall">Suite Room Hall</option>
+                  </select>
+
+                  <div className="flex items-center space-x-2 bg-[#F6FAF8] border border-[#D5E5DE] p-1.5 rounded-2xl">
+                    <button
+                      type="button"
+                      onClick={handlePrevMonth}
+                      className="p-2 rounded-xl hover:bg-white text-[#236B50] transition-colors cursor-pointer"
+                      title="Previous Month"
+                    >
+                      <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+                    <span className="text-xs font-black text-[#192A24] px-3 font-['Plus_Jakarta_Sans'] min-w-[130px] text-center">
+                      {monthName}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleNextMonth}
+                      className="p-2 rounded-xl hover:bg-white text-[#236B50] transition-colors cursor-pointer"
+                      title="Next Month"
+                    >
+                      <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1500,7 +1660,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                 <div className="p-3.5 rounded-2xl bg-rose-50/80 border border-rose-200">
                   <div className="text-[11px] font-bold text-rose-800">Cancelled / Freed Up</div>
                   <div className="text-xl font-extrabold text-rose-950 mt-0.5 font-mono">
-                    {bookings.filter(b => b.status === 'cancelled' && b.eventDate.startsWith(availabilityMonth)).length} Logged
+                    {bookings.filter(b => b.status === 'cancelled' && b.eventDate.startsWith(availabilityMonth) && matchesHallFilter(b)).length} Logged
                   </div>
                 </div>
               </div>
@@ -1696,8 +1856,8 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
           CANCELLED EVENTS HISTORY LOG TAB (MANDATORY REASONS & REPORTING)
           ========================================================================= */}
       {mainTab === 'cancelled' && (() => {
-        // Calculate cancellation reporting statistics
-        const cancelledEvents = bookings.filter(b => b.status === 'cancelled');
+        // Calculate cancellation reporting statistics (respecting hallFilter)
+        const cancelledEvents = bookings.filter(b => b.status === 'cancelled' && matchesHallFilter(b));
         const reasonCounts: Record<string, number> = {};
         let totalCancelledGuests = 0;
         let totalCancelledRevenue = 0;
@@ -1848,28 +2008,45 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
       {(mainTab === 'scheduled' || mainTab === 'costed') && (
         <div className="space-y-4">
           {filteredBookings.length === 0 ? (
-            <div className="bg-white border border-[#E2ECE7] rounded-3xl p-12 text-center text-[#5A6F66]">
-              No banquet bookings found matching your filters.
+            <div className="bg-white border border-[#E2ECE7] rounded-3xl p-12 text-center text-[#5A6F66] space-y-3">
+              <div>
+                No banquet bookings found{hallFilter !== 'All' ? ` for ${hallFilter}` : ''} matching your filters.
+              </div>
+              {hallFilter !== 'All' && (
+                <button
+                  type="button"
+                  onClick={() => handleHallFilterChange('All')}
+                  className="px-4 py-2 rounded-xl bg-[#E8F5EE] hover:bg-[#D5EFE3] text-[#236B50] text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Show All Halls
+                </button>
+              )}
             </div>
           ) : (
           filteredBookings.map((event) => {
             const fin = calculateEventFinancials(event);
+            const paymentSummary = getBookingPaymentSummary(event);
+            const partyEndedLabel =
+              event.partyEndedConfirmedBy && !event.partyEndedConfirmedBy.includes('Francis')
+                ? event.partyEndedConfirmedBy
+                : 'F&B Supervisor';
+
             return (
               <div
                 key={event.id}
-                className="bg-white border border-[#E2ECE7] rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all group"
+                className="bg-white border border-[#E2ECE7] rounded-3xl p-5 sm:p-6 shadow-xs hover:shadow-md transition-all space-y-4"
               >
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  {/* Left Column: Client & Event Information */}
-                  <div className="space-y-2 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-[#236B50] bg-[#E8F5EE] px-2.5 py-0.5 rounded-full border border-[#C5E5D5]">
+                {/* 1. Card Top Header: Reference Badges, Client Info & Payment Status */}
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 pb-3.5 border-b border-[#EBF2EE]">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-mono font-bold text-[#236B50] bg-[#E8F5EE] px-2.5 py-0.5 rounded-lg border border-[#C5E5D5] whitespace-nowrap">
                         {event.bookingNumber}
                       </span>
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#EBF3EF] text-[#284B3D] border border-[#D5E5DE]">
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-[#EBF3EF] text-[#284B3D] border border-[#D5E5DE] whitespace-nowrap">
                         {event.branch}
                       </span>
-                      <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
+                      <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-lg border whitespace-nowrap ${
                         event.status === 'confirmed'
                           ? 'bg-blue-50 text-blue-800 border-blue-200'
                           : event.status === 'active'
@@ -1879,99 +2056,171 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                         {event.status.replace('_', ' ').toUpperCase()}
                       </span>
                       {event.hallOffer === 'free_with_food' && (
-                        <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#17523C] border border-emerald-300">
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-[#17523C] border border-emerald-200 whitespace-nowrap">
                           Hall FREE with Food
                         </span>
                       )}
                       {event.hallOffer === 'one_side_hall' && (
-                        <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 whitespace-nowrap">
                           One-Side Offer (1,000 AED)
+                        </span>
+                      )}
+                      {event.leadSource && (
+                        <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 whitespace-nowrap">
+                          Ad: {event.leadSource}
                         </span>
                       )}
                     </div>
 
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#192A24] flex items-center space-x-2">
-                        <span>{event.clientName}</span>
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                      <h3 className="text-lg font-extrabold text-[#192A24] leading-tight">
+                        {event.clientName}
                         {event.clientCompany && (
-                          <span className="text-xs text-[#5A6F66] font-normal">({event.clientCompany})</span>
+                          <span className="text-xs text-[#5A6F66] font-normal ml-1.5">
+                            ({event.clientCompany})
+                          </span>
                         )}
                       </h3>
-                      <div className="text-xs text-[#5A6F66] flex flex-wrap gap-x-3 gap-y-1 mt-0.5">
-                        <span>Phone: <strong className="text-[#192A24]">{event.clientPhone}</strong></span>
+                      <div className="text-xs text-[#5A6F66] flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums">
+                        <span>
+                          Phone: <strong className="text-[#192A24]">{event.clientPhone}</strong>
+                        </span>
                         {event.clientEmail && (
-                          <span>Email: <strong className="text-[#192A24]">{event.clientEmail}</strong></span>
+                          <span>
+                            Email: <strong className="text-[#192A24]">{event.clientEmail}</strong>
+                          </span>
                         )}
                       </div>
                     </div>
+                  </div>
 
-                    <div className="flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-[#5A6F66]">
-                      <span className="flex items-center space-x-1 text-[#192A24] font-semibold">
-                        <Building className="w-3.5 h-3.5 text-[#236B50]" />
-                        <span>{event.hallName}</span>
-                      </span>
-                      <span>•</span>
-                      <span className="flex items-center space-x-1 text-[#192A24]">
-                        <Users className="w-3.5 h-3.5 text-blue-700" />
-                        <span>{event.guestCount} Guests</span>
-                      </span>
-                      <span>•</span>
-                      <span className="text-[#236B50] font-semibold">{event.eventType}</span>
-                      <span>•</span>
-                      <span>Booked: <strong>{event.bookingDate}</strong></span>
-                      <span>•</span>
-                      <span>Party Date: <strong className="text-[#236B50]">{event.eventDate}</strong></span>
-                      {event.leadSource && (
-                        <>
-                          <span>•</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
-                            Ad: {event.leadSource}
-                          </span>
-                        </>
-                      )}
+                  {/* Crisp Non-Clipping Payment Status Box */}
+                  <div className="shrink-0">
+                    {paymentSummary.isBalanceSettled ? (
+                      <div className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <div className="text-xs leading-tight tabular-nums">
+                          <div className="font-extrabold">Full Payment Settled</div>
+                          <div className="text-[11px] font-mono text-emerald-700">
+                            {paymentSummary.totalPaid.toFixed(2)} / {paymentSummary.totalBill.toFixed(2)} AED
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-950">
+                        <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                        <div className="text-xs leading-tight tabular-nums">
+                          <div className="font-extrabold">
+                            Outstanding: {paymentSummary.balanceToPay.toFixed(2)} AED
+                          </div>
+                          <div className="text-[11px] font-mono text-amber-800">
+                            Bill {paymentSummary.totalBill.toFixed(2)} · Paid {paymentSummary.totalPaid.toFixed(2)} AED
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Card Body Grid: Event & Setup Details (8 cols) + Kitchen/Financial Snapshot (4 cols) */}
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+                  {/* Left Main Details */}
+                  <div className="xl:col-span-8 min-w-0 space-y-3">
+                    {/* Structured Key Event Facts */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-[#F8FAF9] border border-[#E2ECE7] rounded-2xl p-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6F66]">Hall</div>
+                        <div className="font-bold text-[#192A24] flex items-center space-x-1 mt-0.5">
+                          <Building className="w-3.5 h-3.5 text-[#236B50] shrink-0" />
+                          <span className="truncate">{event.hallName}</span>
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6F66]">Guests &amp; Occasion</div>
+                        <div className="font-bold text-[#192A24] flex items-center space-x-1 mt-0.5 tabular-nums">
+                          <Users className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                          <span className="truncate">{event.guestCount} Guests · {event.eventType}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6F66]">Party Date</div>
+                        <div className="font-extrabold text-[#236B50] font-mono tabular-nums mt-0.5">
+                          {event.eventDate}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6F66]">Booked On</div>
+                        <div className="font-semibold text-[#192A24] font-mono tabular-nums mt-0.5">
+                          {event.bookingDate}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Operational Setup Specs (Logged by Francis — no sample fallbacks) */}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#3D5A4E] bg-[#F4F8F6] px-3 py-1.5 rounded-xl border border-[#D5E5DE] mt-1">
-                      <span className="font-bold text-[#236B50]">Operational Specs:</span>
-                      <span>Pickup: <strong className="text-[#192A24]">{event.foodPickupTime || '—'}</strong></span>
-                      <span>•</span>
-                      <span>Venue: <strong className="text-[#192A24]">{event.venueFloor || event.hallName || '—'}</strong></span>
-                      <span>•</span>
-                      <span>Projector: <strong className="text-[#192A24]">{event.projector !== undefined && event.projector !== '' ? String(event.projector) : '—'}</strong></span>
-                      <span>•</span>
-                      <span>Decor: <strong className="text-[#192A24]">{event.decorations !== undefined && event.decorations !== '' ? String(event.decorations) : '—'}{(event.decorations === 'Yes' || event.decorations === true) && event.decorAndAVCharged ? ` (+${event.decorAndAVCharged} AED)` : ''}</strong></span>
-                      <span>•</span>
-                      <span>Stage: <strong className="text-[#192A24]">{event.stagePosition || '—'}</strong></span>
-                      <span>•</span>
-                      <span>Buffet: <strong className="text-[#192A24]">{event.buffetPosition || '—'}</strong></span>
+                    {/* Operational Setup Specs */}
+                    <div className="bg-[#F4F8F6] px-3.5 py-2.5 rounded-2xl border border-[#D5E5DE]">
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#236B50] mb-1.5">
+                        Operational Specs
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-3 gap-y-1.5 text-[11px] text-[#3D5A4E]">
+                        <div>
+                          <span className="text-[#5A6F66]">Pickup:</span>{' '}
+                          <strong className="text-[#192A24]">{event.foodPickupTime || '—'}</strong>
+                        </div>
+                        <div className="truncate">
+                          <span className="text-[#5A6F66]">Venue:</span>{' '}
+                          <strong className="text-[#192A24]">{event.venueFloor || event.hallName || '—'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5A6F66]">Projector:</span>{' '}
+                          <strong className="text-[#192A24]">
+                            {event.projector !== undefined && event.projector !== '' ? String(event.projector) : '—'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5A6F66]">Decor:</span>{' '}
+                          <strong className="text-[#192A24]">
+                            {event.decorations !== undefined && event.decorations !== '' ? String(event.decorations) : '—'}
+                            {(event.decorations === 'Yes' || event.decorations === true) && event.decorAndAVCharged
+                              ? ` (+${event.decorAndAVCharged} AED)`
+                              : ''}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5A6F66]">Stage:</span>{' '}
+                          <strong className="text-[#192A24]">{event.stagePosition || '—'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5A6F66]">Buffet:</span>{' '}
+                          <strong className="text-[#192A24]">{event.buffetPosition || '—'}</strong>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Guest Selected Menu & Dishes Forwarded to Chef & Accounts */}
                     {(event.selectedMenuName || (event.selectedFoodItems && event.selectedFoodItems.length > 0)) && (
-                      <div className="bg-[#FAFDFB] p-2.5 rounded-xl border border-[#D5E5DE] mt-1 space-y-1.5">
-                        <div className="flex flex-wrap items-center justify-between gap-1">
-                          <div className="flex items-center space-x-1.5">
-                            <UtensilsCrossed className="w-3.5 h-3.5 text-[#236B50]" />
-                            <span className="text-xs font-black text-[#192A24]">
+                      <div className="bg-[#FAFDFB] p-3 rounded-2xl border border-[#D5E5DE] space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <UtensilsCrossed className="w-3.5 h-3.5 text-[#236B50] shrink-0" />
+                            <span className="text-xs font-extrabold text-[#192A24]">
                               {event.selectedMenuName || 'Registered Banquet Menu'}
                             </span>
-                            <span className="text-[10px] font-bold text-[#236B50] bg-[#E8F5EE] px-2 py-0.5 rounded-full border border-[#C5E5D5]">
+                            <span className="text-[10px] font-bold text-[#236B50] bg-[#E8F5EE] px-2 py-0.5 rounded-md border border-[#C5E5D5] tabular-nums">
                               {event.foodPricePerGuestCharged} AED / Person
                             </span>
                           </div>
-                          <span className="text-[10px] text-[#236B50] font-extrabold bg-white px-2 py-0.5 rounded-md border border-[#D5E5DE]">
-                            {event.selectedFoodItems?.length || 0} Dishes Chosen by Guest
+                          <span className="text-[10px] text-[#236B50] font-extrabold bg-white px-2 py-0.5 rounded-md border border-[#D5E5DE] tabular-nums">
+                            {event.selectedFoodItems?.length || 0} Dishes Selected
                           </span>
                         </div>
                         {event.selectedFoodItems && event.selectedFoodItems.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
+                          <div className="flex flex-wrap gap-1.5">
                             {event.selectedFoodItems.map((dish, i) => (
-                              <span 
-                                key={i} 
-                                className="text-[10px] bg-white border border-[#D5E5DE] text-slate-800 font-semibold px-2 py-0.5 rounded-lg shadow-2xs"
+                              <span
+                                key={i}
+                                className="text-[11px] bg-white border border-[#D5E5DE] text-slate-800 font-medium px-2 py-0.5 rounded-md"
                               >
-                                • {dish}
+                                {dish}
                               </span>
                             ))}
                           </div>
@@ -1979,30 +2228,9 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                       </div>
                     )}
 
-                    {/* Advance Payment & Outstanding Balance Breakdown */}
-                    {(() => {
-                      const summary = getBookingPaymentSummary(event);
-                      return (
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <span className="text-[11px] font-bold text-slate-500">Payment:</span>
-                          {summary.isBalanceSettled ? (
-                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center space-x-1">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                              <span>Full Payment Settled ({summary.totalPaid.toFixed(2)} AED / {summary.totalBill.toFixed(2)} AED)</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center space-x-1">
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
-                              <span>Total Bill: {summary.totalBill.toFixed(2)} AED • Advance Paid: {summary.totalPaid.toFixed(2)} AED • <strong>Outstanding: {summary.balanceToPay.toFixed(2)} AED</strong></span>
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
-
                     {/* Chef notes badge if entered */}
                     {event.chefNotes && (
-                      <div className="text-xs bg-[#F4F8F6] p-2.5 rounded-2xl border border-[#D5E5DE] text-[#284B3D] flex items-start space-x-2 mt-1">
+                      <div className="text-xs bg-[#F4F8F6] p-3 rounded-2xl border border-[#D5E5DE] text-[#284B3D] flex items-start space-x-2">
                         <ChefHat className="w-4 h-4 text-[#236B50] shrink-0 mt-0.5" />
                         <div>
                           <strong className="text-[#192A24]">Chef Notes: </strong>
@@ -2012,403 +2240,401 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                     )}
                   </div>
 
-                  {/* Middle Column: Tabular Snapshot (Kitchen View for Chef, Financial View for Management & Accounts) */}
-                  {currentUser.role === 'executive_chef' || !currentUser.permissions.canViewProfits ? (
-                    <div className="bg-[#F8FAF9] p-4 rounded-2xl border border-[#E2ECE7] flex flex-col justify-center min-w-[260px] space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-[#236B50] bg-[#E8F5EE] px-2 py-0.5 rounded-md border border-[#C5E5D5]">
-                          Kitchen Service Spec
-                        </span>
-                        <span className="text-xs font-extrabold text-[#192A24]">
-                          {event.guestCount} Guests
-                        </span>
-                      </div>
-
-                      <div className="text-xs">
-                        <span className="text-[#5A6F66] text-[11px] block">Buffet / Food Menu:</span>
-                        <strong className="text-[#192A24]">
-                          {event.hasFoodFromHotel 
-                            ? (event.buffetTier ? `${event.buffetTier.replace('_', ' ').toUpperCase()} Buffet Package` : 'Hotel Food Included') 
-                            : 'Hall Only (External Food)'}
-                        </strong>
-                      </div>
-
-                      <div className="text-xs pt-1 border-t border-[#E2ECE7]">
-                        <span className="text-[#5A6F66] text-[11px] block">Costing Voucher:</span>
-                        <span className={`inline-flex items-center space-x-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                          event.costingStatus === 'costed_by_arun'
-                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                            : event.costingStatus === 'forwarded_to_accounts'
-                            ? 'bg-blue-100 text-blue-900 border border-blue-300'
-                            : 'bg-amber-100 text-amber-900 border border-amber-300'
-                        }`}>
-                          <span>
-                            {event.costingStatus === 'costed_by_arun'
-                              ? '✓ Final Costed by Arun'
-                              : event.costingStatus === 'forwarded_to_accounts'
-                              ? '⏳ Forwarded to Accounts (Arun)'
-                              : '⚠️ Pending Chef Kitchen Items'}
+                  {/* Right Summary Box: Kitchen Service Spec or Financial Snapshot */}
+                  <div className="xl:col-span-4 min-w-0">
+                    {currentUser.role === 'executive_chef' || !currentUser.permissions.canViewProfits ? (
+                      <div className="bg-[#F8FAF9] p-4 rounded-2xl border border-[#E2ECE7] space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wide text-[#236B50] bg-[#E8F5EE] px-2.5 py-0.5 rounded-md border border-[#C5E5D5]">
+                            Kitchen Service Spec
                           </span>
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-[#F8FAF9] p-3.5 rounded-2xl border border-[#E2ECE7] flex flex-col justify-center min-w-[240px]">
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <div className="text-[#5A6F66] text-[11px]">Client Charged</div>
-                          <div className="font-extrabold text-[#192A24] text-sm">
-                            {formatCurrency(fin.subtotalRevenue)}
-                          </div>
+                          <span className="text-xs font-extrabold text-[#192A24] tabular-nums">
+                            {event.guestCount} Guests
+                          </span>
                         </div>
-                        <div>
-                          <div className="text-[#5A6F66] text-[11px]">Hotel Cost Spent</div>
-                          <div className="font-bold text-[#5A6F66] text-sm font-mono">
-                            {formatCurrency(fin.totalDirectCosts)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[#5A6F66] text-[11px]">Gross Profit</div>
-                          <div className="font-extrabold text-[#236B50] text-sm font-mono">
-                            +{formatCurrency(fin.netGrossProfit)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[#5A6F66] text-[11px]">Margin %</div>
-                          <div className="font-extrabold text-[#236B50] text-sm font-mono">
-                            {formatPercent(fin.overallProfitMarginPercent)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
 
-                  {/* Right Column: Actions (Role Aware) */}
-                  <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-2 pt-2 lg:pt-0 border-t lg:border-t-0 border-[#E2ECE7]">
-                    {currentUser.role === 'accounts_executive' ? (
-                      /* Accounts Executive (Arun Kumar) Dedicated Actions */
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* 1. If party has been stamped by Chef and needs costing */}
-                        {(event.costingStatus === 'forwarded_to_accounts' || (event.chefApproved && !event.arunCostedAt && event.costingStatus !== 'costed_by_arun')) && event.hasFoodFromHotel && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenChefUsageModal(event)}
-                            className="flex items-center space-x-1.5 px-4 py-2 rounded-full bg-purple-800 hover:bg-purple-900 active:scale-98 text-white text-xs font-black shadow-md transition-all cursor-pointer animate-pulse"
-                            title="Perform FIFO Purchasing Costing for this party"
-                          >
-                            <Calculator className="w-4 h-4 text-amber-300" />
-                            <span>⚡ Fill Prices & Cost Voucher (FIFO)</span>
-                          </button>
-                        )}
+                        <div className="text-xs">
+                          <span className="text-[#5A6F66] text-[11px] block">Buffet / Food Menu</span>
+                          <strong className="text-[#192A24] block mt-0.5">
+                            {event.hasFoodFromHotel
+                              ? (event.buffetTier ? `${event.buffetTier.replace('_', ' ').toUpperCase()} Buffet Package` : 'Hotel Food Included')
+                              : 'Hall Only (External Food)'}
+                          </strong>
+                        </div>
 
-                        {/* 2. If party costing is completed / posted to GL */}
-                        {(event.costingStatus === 'costed_by_arun' || event.postingReportGenerated) && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPostingReportBooking(event)}
-                            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 text-xs font-black transition-all shadow-2xs cursor-pointer"
-                            title="View / Print Official General Ledger Posting Report"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-purple-700" />
-                            <span>📄 View GL Posting Report</span>
-                          </button>
-                        )}
-
-                        {/* Read All Party Details */}
-                        <button
-                          type="button"
-                          onClick={() => onOpenA4Sheet(event)}
-                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#236B50] text-xs font-bold transition-all cursor-pointer"
-                          title={!event.partyEnded ? "View Function Prospectus (Pre-Party FP Sheet PDF)" : "Read Party BEO Sheet & Internal Costing"}
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>{!event.partyEnded ? 'FP Sheet (PDF)' : 'Read Party BEO Sheet'}</span>
-                        </button>
-                      </div>
-                    ) : currentUser.role === 'executive_chef' ? (
-                      /* Executive Chef Dedicated Actions */
-                      <div className="flex flex-wrap items-center gap-2">
-                        {event.hasFoodFromHotel ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpenChefUsageModal(event)}
-                            className={`flex items-center space-x-1.5 px-4 py-2 rounded-full text-xs font-black shadow-md transition-all cursor-pointer active:scale-98 ${
-                              (event.partyEnded && !event.chefApproved) || event.costingStatus === 'party_ended_pending_chef'
-                                ? 'bg-orange-600 hover:bg-orange-700 text-white animate-pulse'
-                                : 'bg-[#236B50] hover:bg-[#1C5740] text-white'
-                            }`}
-                            title="Enter kitchen ingredients and amounts used from stocks for this party"
-                          >
-                            <ChefHat className="w-4 h-4" />
+                        <div className="text-xs pt-2 border-t border-[#E2ECE7]">
+                          <span className="text-[#5A6F66] text-[11px] block mb-1">Costing Voucher</span>
+                          <span className={`inline-flex items-center space-x-1 text-[11px] font-bold px-2.5 py-1 rounded-lg border ${
+                            event.costingStatus === 'costed_by_arun'
+                              ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                              : event.costingStatus === 'forwarded_to_accounts'
+                              ? 'bg-blue-50 text-blue-900 border-blue-200'
+                              : 'bg-amber-50 text-amber-900 border-amber-200'
+                          }`}>
                             <span>
                               {event.costingStatus === 'costed_by_arun'
-                                ? '✓ Finished by Accounts'
+                                ? '✓ Final Costed by Accounts'
                                 : event.costingStatus === 'forwarded_to_accounts'
-                                ? '⏳ Stamped in Accounts FIFO Queue'
-                                : ((event.partyEnded && !event.chefApproved) || event.costingStatus === 'party_ended_pending_chef'
-                                  ? '🚨 Party Ended — Enter Ingredients'
-                                  : '🍳 Enter Kitchen Ingredients & Stamp')}
+                                ? '⏳ Forwarded to Accounts'
+                                : '⚠ Pending Chef Kitchen Items'}
                             </span>
-                          </button>
-                        ) : (
-                          <span className="text-xs text-[#5A6F66] italic py-1 px-2 bg-slate-50 rounded-lg">
-                            No Hotel Food
                           </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-[#F8FAF9] p-4 rounded-2xl border border-[#E2ECE7]">
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#5A6F66] mb-2.5">
+                          Financial Snapshot
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-xs tabular-nums">
+                          <div>
+                            <div className="text-[#5A6F66] text-[11px]">Client Charged</div>
+                            <div className="font-extrabold text-[#192A24] text-sm mt-0.5">
+                              {formatCurrency(fin.subtotalRevenue)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#5A6F66] text-[11px]">Hotel Cost Spent</div>
+                            <div className="font-bold text-[#5A6F66] text-sm font-mono mt-0.5">
+                              {formatCurrency(fin.totalDirectCosts)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#5A6F66] text-[11px]">Gross Profit</div>
+                            <div className="font-extrabold text-[#236B50] text-sm font-mono mt-0.5">
+                              +{formatCurrency(fin.netGrossProfit)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#5A6F66] text-[11px]">Margin %</div>
+                            <div className="font-extrabold text-[#236B50] text-sm font-mono mt-0.5">
+                              {formatPercent(fin.overallProfitMarginPercent)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Dedicated Card Footer Action Bar (Role Aware) */}
+                <div className="pt-3.5 border-t border-[#EBF2EE] flex flex-wrap items-center justify-between gap-2.5">
+                  {currentUser.role === 'accounts_executive' ? (
+                    <div className="flex flex-wrap items-center gap-2 w-full">
+                      {(event.costingStatus === 'forwarded_to_accounts' || (event.chefApproved && !event.arunCostedAt && event.costingStatus !== 'costed_by_arun')) && event.hasFoodFromHotel && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenChefUsageModal(event)}
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-purple-800 hover:bg-purple-900 active:scale-98 text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                          title="Perform FIFO Purchasing Costing for this party"
+                        >
+                          <Calculator className="w-4 h-4 text-amber-300" />
+                          <span>Fill Prices &amp; Cost Voucher (FIFO)</span>
+                        </button>
+                      )}
+
+                      {(event.costingStatus === 'costed_by_arun' || event.postingReportGenerated) && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPostingReportBooking(event)}
+                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                          title="View / Print Official General Ledger Posting Report"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-purple-700" />
+                          <span>View GL Posting Report</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => onOpenA4Sheet(event)}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#236B50] text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                        title={!event.partyEnded ? 'View Function Prospectus (Pre-Party FP Sheet PDF)' : 'Read Party BEO Sheet & Internal Costing'}
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>{!event.partyEnded ? 'FP Sheet (PDF)' : 'Read Party BEO Sheet'}</span>
+                      </button>
+                    </div>
+                  ) : currentUser.role === 'executive_chef' ? (
+                    <div className="flex flex-wrap items-center gap-2 w-full">
+                      {event.hasFoodFromHotel ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenChefUsageModal(event)}
+                          className={`inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold shadow-xs transition-all cursor-pointer active:scale-98 whitespace-nowrap ${
+                            (event.partyEnded && !event.chefApproved) || event.costingStatus === 'party_ended_pending_chef'
+                              ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                              : 'bg-[#236B50] hover:bg-[#1C5740] text-white'
+                          }`}
+                          title="Enter kitchen ingredients and amounts used from stocks for this party"
+                        >
+                          <ChefHat className="w-4 h-4" />
+                          <span>
+                            {event.costingStatus === 'costed_by_arun'
+                              ? '✓ Finished by Accounts'
+                              : event.costingStatus === 'forwarded_to_accounts'
+                              ? '⏳ Stamped in Accounts FIFO Queue'
+                              : ((event.partyEnded && !event.chefApproved) || event.costingStatus === 'party_ended_pending_chef'
+                                ? 'Party Ended — Enter Ingredients'
+                                : 'Enter Kitchen Ingredients & Stamp')}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-[#5A6F66] italic py-1.5 px-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                          No Hotel Food
+                        </span>
+                      )}
+
+                      {(event.costingStatus === 'costed_by_arun' || event.postingReportGenerated) && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPostingReportBooking(event)}
+                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                          title="View Finished General Ledger Posting Report"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-purple-700" />
+                          <span>Posting Report</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => onOpenA4Sheet(event, !event.partyEnded ? 3 : undefined)}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#236B50] text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                        title={!event.partyEnded ? 'View Official Kitchen Function Prospectus (FP Sheet)' : 'View Official 2-Page Kitchen Banquet Order'}
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>{!event.partyEnded ? 'Kitchen FP Sheet' : '2-Page Kitchen Sheet'}</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Primary Document & Settlement Actions */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {!paymentSummary.isBalanceSettled ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onOpenA4Sheet(event, 3)}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-98 text-slate-950 text-xs font-extrabold transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                              title="Download or Print the Official Function Prospectus (Pre-Party FP Sheet PDF)"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                              <span>FP Sheet (Pre-Party)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSettleModalBooking(event)}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#236B50] hover:bg-[#1C5740] active:scale-98 text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                              title={`BEO is locked until ${formatCurrency(paymentSummary.balanceToPay)} remaining balance is settled`}
+                            >
+                              <DollarSign className="w-3.5 h-3.5" />
+                              <span>Settle Balance ({formatCurrency(paymentSummary.balanceToPay)}) &amp; Unlock BEO</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onOpenA4Sheet(event)}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[#236B50] hover:bg-[#1C5740] active:scale-98 text-white text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                              title="100% Balance Settled. Download or Print Official BEO Summary & Costing Sheet (PDF)"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span>{currentUser.permissions.canViewCosting ? '✓ BEO & Costing Sheet (Paid)' : '✓ Official BEO Sheet (Paid)'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onOpenA4Sheet(event, 3)}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold transition-colors cursor-pointer whitespace-nowrap"
+                              title="Download Function Prospectus (Pre-Party FP Sheet)"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                              <span>FP Sheet</span>
+                            </button>
+                          </>
                         )}
 
-                        {/* If Arun has costed, Chef can view the Posting Report! */}
-                        {(event.costingStatus === 'costed_by_arun' || event.postingReportGenerated) && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAdvanceVoucherBooking(event)}
+                          className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                          title="Generate separate Advance Booking Confirmation & Payment Voucher PDF"
+                        >
+                          <Receipt className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Advance Voucher</span>
+                        </button>
+
+                        {(currentUser.permissions.canViewProfits || currentUser.permissions.canViewCosting) &&
+                          (event.costingStatus === 'costed_by_arun' || event.postingReportGenerated) && (
                           <button
                             type="button"
                             onClick={() => setSelectedPostingReportBooking(event)}
-                            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 text-xs font-black transition-all cursor-pointer"
-                            title="View Finished General Ledger Posting Report"
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                            title="View Official GL Posting Report"
                           >
                             <FileText className="w-3.5 h-3.5 text-purple-700" />
-                            <span>📄 Posting Report</span>
+                            <span>Posting Report</span>
                           </button>
                         )}
 
                         <button
                           type="button"
-                          onClick={() => onOpenA4Sheet(event, !event.partyEnded ? 3 : undefined)}
-                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#236B50] text-xs font-bold transition-all cursor-pointer"
-                          title={!event.partyEnded ? "View Official Kitchen Function Prospectus (FP Sheet)" : "View Official 2-Page Kitchen Banquet Order"}
+                          onClick={() => setPaymentModalBooking(event)}
+                          className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold transition-all cursor-pointer whitespace-nowrap tabular-nums"
+                          title="Record and view individual advance and balance payments with receipts"
                         >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>{!event.partyEnded ? 'Kitchen FP Sheet' : '2-Page Kitchen Sheet'}</span>
+                          <CreditCard className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Payments ({formatCurrency(event.depositPaid || 0)})</span>
                         </button>
-                      </div>
-                    ) : (
-                      /* Management & F&B Supervisor (Francis) Actions */
-                      <>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {(() => {
-                            const summary = getBookingPaymentSummary(event);
-                            const eventBalanceToPay = summary.balanceToPay;
-                            const isEventBalanceSettled = summary.isBalanceSettled;
 
-                            if (!isEventBalanceSettled) {
-                              return (
-                                <>
-                                  <button
-                                    onClick={() => onOpenA4Sheet(event, 3)}
-                                    className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-amber-500 hover:bg-amber-600 active:scale-98 text-slate-950 text-xs font-black transition-all shadow-sm cursor-pointer"
-                                    title="Download or Print the Official Function Prospectus (Pre-Party FP Sheet PDF)"
-                                  >
-                                    <Sparkles className="w-3.5 h-3.5 text-slate-950" />
-                                    <span>FP Sheet (Pre-Party)</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => setSettleModalBooking(event)}
-                                    className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-[#236B50] hover:bg-[#1C5740] active:scale-98 text-white text-xs font-black shadow-sm transition-all cursor-pointer"
-                                    title={`BEO is locked until ${formatCurrency(eventBalanceToPay)} remaining balance is settled`}
-                                  >
-                                    <DollarSign className="w-3.5 h-3.5" />
-                                    <span>Settle Balance ({formatCurrency(eventBalanceToPay)}) &amp; Unlock BEO</span>
-                                  </button>
-                                </>
-                              );
-                            }
-
-                            // Balance is 100% Settled!
-                            return (
-                              <>
-                                <button
-                                  onClick={() => onOpenA4Sheet(event)}
-                                  className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-[#236B50] hover:bg-[#1C5740] active:scale-98 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
-                                  title="100% Balance Settled. Download or Print Official BEO Summary & Costing Sheet (PDF)"
-                                >
-                                  <Printer className="w-3.5 h-3.5" />
-                                  <span>{currentUser.permissions.canViewCosting ? '✓ BEO & Costing Sheet (Paid)' : '✓ Official BEO Sheet (Paid)'}</span>
-                                </button>
-
-                                <button
-                                  onClick={() => onOpenA4Sheet(event, 3)}
-                                  className="flex items-center space-x-1 px-2.5 py-1.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-bold transition-colors cursor-pointer"
-                                  title="Download Function Prospectus (Pre-Party FP Sheet)"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                                  <span>FP Sheet</span>
-                                </button>
-                              </>
-                            );
-                          })()}
-
-                          <button
-                            onClick={() => setSelectedAdvanceVoucherBooking(event)}
-                            className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold transition-all shadow-2xs cursor-pointer"
-                            title="Generate separate Advance Booking Confirmation & Payment Voucher PDF"
-                          >
-                            <Receipt className="w-3.5 h-3.5 text-emerald-700" />
-                            <span>Advance Voucher</span>
-                          </button>
-
-                          {/* Posting Report if finished (Management & Accounts only, not F&B Supervisor) */}
-                          {(currentUser.permissions.canViewProfits || currentUser.permissions.canViewCosting) &&
-                            (event.costingStatus === 'costed_by_arun' || event.postingReportGenerated) && (
-                            <button
-                              onClick={() => setSelectedPostingReportBooking(event)}
-                              className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 text-xs font-black transition-all shadow-2xs cursor-pointer"
-                              title="View Official GL Posting Report"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-purple-700" />
-                              <span>Posting Report</span>
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {/* Payment Tracking Button */}
+                        {event.hasFoodFromHotel && (
                           <button
                             type="button"
-                            onClick={() => setPaymentModalBooking(event)}
-                            className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold transition-all cursor-pointer"
-                            title="Record and view individual advance and balance payments with receipts"
+                            onClick={() => onOpenChefUsageModal(event)}
+                            className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border ${
+                              event.costingStatus === 'costed_by_arun'
+                                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                                : event.costingStatus === 'forwarded_to_accounts'
+                                ? 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'
+                                : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                            }`}
+                            title="Chef Kitchen Items Log & Accounts Costing (Excel & OCR)"
                           >
-                            <CreditCard className="w-3.5 h-3.5 text-emerald-700" />
-                            <span>Payments ({formatCurrency(event.depositPaid || 0)})</span>
-                          </button>
-
-                          {/* Record Lock Status & Unlock Request */}
-                          {event.lockDetails?.isLocked && (
-                            <div className="flex items-center space-x-1">
-                              <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-800 text-[10px] font-black border border-slate-300 flex items-center space-x-1" title="Locked after finish. Revisions require GM approval.">
-                                <Lock className="w-3 h-3 text-slate-600" />
-                                <span>Locked</span>
-                              </span>
-                              {currentUser.role === 'general_manager' && event.lockDetails.unlockRequested && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleApproveUnlock(event)}
-                                  className="px-2.5 py-1 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black shadow-xs cursor-pointer animate-pulse"
-                                  title={`Approve unlock request: "${event.lockDetails.unlockRequestReason}"`}
-                                >
-                                  <span>Approve Unlock</span>
-                                </button>
-                              )}
-                              {currentUser.role !== 'general_manager' && !event.lockDetails.unlockRequested && (
-                                <button
-                                  type="button"
-                                  onClick={() => setUnlockModalBooking(event)}
-                                  className="px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-bold cursor-pointer"
-                                  title="Request General Manager approval to unlock and edit"
-                                >
-                                  <span>Request Unlock</span>
-                                </button>
-                              )}
-                              {event.lockDetails.unlockRequested && currentUser.role !== 'general_manager' && (
-                                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
-                                  ⏳ Unlock Pending GM
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Cancel Button on Every Booking (Mandatory Reason Prompt) */}
-                          {event.status !== 'cancelled' && (
-                            <button
-                              type="button"
-                              onClick={() => setCancelModalBooking(event)}
-                              className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-all cursor-pointer"
-                              title="Cancel banquet booking (opens mandatory reason prompt and frees the date)"
-                            >
-                              <Ban className="w-3.5 h-3.5" />
-                              <span>Cancel</span>
-                            </button>
-                          )}
-
-                          {currentUser.permissions.canManageBookings && !event.lockDetails?.isLocked && (
-                            <button
-                              onClick={() => openEditModal(event)}
-                              className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#236B50] text-xs font-bold transition-colors cursor-pointer"
-                              title="Edit booking dates, guests, offer, or chef notes"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                              <span>Edit</span>
-                            </button>
-                          )}
-
-                          {currentUser.role === 'general_manager' && (
-                            <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
-                              👁️ View Only
+                            <ChefHat className="w-3.5 h-3.5" />
+                            <span>
+                              {event.costingStatus === 'costed_by_arun'
+                                ? 'Costed (Accounts ✓)'
+                                : event.costingStatus === 'forwarded_to_accounts'
+                                ? 'In Accounts'
+                                : 'Food Costing'}
                             </span>
-                          )}
+                          </button>
+                        )}
+                      </div>
 
-                          {currentUser.permissions.canManageBookings && (
-                            <button
-                              onClick={() => setDeletingBookingId(event.id)}
-                              className="p-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors cursor-pointer"
-                              title="Delete this booking"
+                      {/* Secondary Status, Lock & Edit/Cancel Actions */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {event.lockDetails?.isLocked && (
+                          <div className="flex items-center space-x-1.5">
+                            <span
+                              className="px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-800 text-[11px] font-bold border border-slate-200 inline-flex items-center space-x-1 whitespace-nowrap"
+                              title="Locked after finish. Revisions require GM approval."
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-
-                          {/* Party Ended Confirmation Button for Francis / Management */}
-                          {!event.partyEnded ? (() => {
-                            const summary = getBookingPaymentSummary(event);
-                            if (!summary.isBalanceSettled) return null;
-
-                            return (
+                              <Lock className="w-3 h-3 text-slate-600" />
+                              <span>Locked</span>
+                            </span>
+                            {currentUser.role === 'general_manager' && event.lockDetails.unlockRequested && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const fp = getFunctionProspectusFinancials(event);
-                                  const updated: BookingEvent = {
-                                    ...event,
-                                    fpPrePartyTotalBill: event.fpPrePartyTotalBill ?? fp.fpTotalBill,
-                                    fpPrePartyAdvancePaid: event.fpPrePartyAdvancePaid ?? fp.fpAdvancePaid,
-                                    fpPrePartyAdvanceMode: event.fpPrePartyAdvanceMode ?? (fp.fpAdvanceMode || undefined),
-                                    status: 'completed',
-                                    partyEnded: true,
-                                    partyEndedAt: new Date().toISOString(),
-                                    partyEndedConfirmedBy: currentUser.name,
-                                    costingStatus: event.hasFoodFromHotel ? 'party_ended_pending_chef' : (event.costingStatus === 'not_started' ? 'party_ended_pending_chef' : event.costingStatus),
-                                  };
-                                  onUpdateBooking(updated);
-                                }}
-                                className="flex items-center space-x-1 px-3.5 py-1.5 rounded-full bg-orange-600 hover:bg-orange-700 active:scale-98 text-white text-xs font-black shadow-2xs transition-all cursor-pointer"
-                                title="Francis confirms party has concluded in full — immediately notifies Chef Karim on his dashboard to log ingredients used"
+                                onClick={() => handleApproveUnlock(event)}
+                                className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold shadow-xs cursor-pointer whitespace-nowrap"
+                                title={`Approve unlock request: "${event.lockDetails.unlockRequestReason}"`}
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5 text-orange-200" />
-                                <span>🏁 Confirm Party Ended</span>
+                                Approve Unlock
                               </button>
-                            );
-                          })() : (
-                            <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold" title={`Party confirmed ended by ${event.partyEndedConfirmedBy || 'Francis'}`}>
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>Party Ended ({event.partyEndedConfirmedBy || 'Francis'})</span>
-                            </span>
-                          )}
-
-                          {event.hasFoodFromHotel && (
-                            <button
-                              onClick={() => onOpenChefUsageModal(event)}
-                              className={`flex items-center space-x-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                                event.costingStatus === 'costed_by_arun'
-                                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  : event.costingStatus === 'forwarded_to_accounts'
-                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'
-                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
-                              }`}
-                              title="Chef Kitchen Items Log & Arun Accounts Costing (Excel & OCR)"
-                            >
-                              <ChefHat className="w-3.5 h-3.5" />
-                              <span>
-                                {event.costingStatus === 'costed_by_arun'
-                                  ? 'Costed (Arun ✓)'
-                                  : event.costingStatus === 'forwarded_to_accounts'
-                                  ? 'In Accounts'
-                                  : 'Food Costing'}
+                            )}
+                            {currentUser.role !== 'general_manager' && !event.lockDetails.unlockRequested && (
+                              <button
+                                type="button"
+                                onClick={() => setUnlockModalBooking(event)}
+                                className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                                title="Request General Manager approval to unlock and edit"
+                              >
+                                Request Unlock
+                              </button>
+                            )}
+                            {event.lockDetails.unlockRequested && currentUser.role !== 'general_manager' && (
+                              <span className="px-2.5 py-1.5 rounded-xl bg-amber-100 text-amber-900 text-[11px] font-bold whitespace-nowrap">
+                                ⏳ Unlock Pending GM
                               </span>
+                            )}
+                          </div>
+                        )}
+
+                        {!event.partyEnded ? (
+                          paymentSummary.isBalanceSettled ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const fp = getFunctionProspectusFinancials(event);
+                                const updated: BookingEvent = {
+                                  ...event,
+                                  fpPrePartyTotalBill: event.fpPrePartyTotalBill ?? fp.fpTotalBill,
+                                  fpPrePartyAdvancePaid: event.fpPrePartyAdvancePaid ?? fp.fpAdvancePaid,
+                                  fpPrePartyAdvanceMode: event.fpPrePartyAdvanceMode ?? (fp.fpAdvanceMode || undefined),
+                                  status: 'completed',
+                                  partyEnded: true,
+                                  partyEndedAt: new Date().toISOString(),
+                                  partyEndedConfirmedBy: currentUser.name,
+                                  costingStatus: event.hasFoodFromHotel
+                                    ? 'party_ended_pending_chef'
+                                    : (event.costingStatus === 'not_started' ? 'party_ended_pending_chef' : event.costingStatus),
+                                };
+                                onUpdateBooking(updated);
+                              }}
+                              className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-98 text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                              title="F&B Supervisor confirms party has concluded in full — immediately notifies Executive Chef on their dashboard to log ingredients used"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-orange-200" />
+                              <span>Confirm Party Ended</span>
                             </button>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                          ) : null
+                        ) : (
+                          <span
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold whitespace-nowrap"
+                            title={`Party confirmed ended by ${partyEndedLabel}`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Party Ended ({partyEndedLabel})</span>
+                          </span>
+                        )}
+
+                        {currentUser.role === 'general_manager' && (
+                          <span className="px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 text-[11px] font-bold border border-slate-200 whitespace-nowrap">
+                            View Only
+                          </span>
+                        )}
+
+                        {currentUser.permissions.canManageBookings && !event.lockDetails?.isLocked && (
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(event)}
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#236B50] text-xs font-bold transition-colors cursor-pointer whitespace-nowrap"
+                            title="Edit booking dates, guests, offer, or chef notes"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+
+                        {event.status !== 'cancelled' && (
+                          <button
+                            type="button"
+                            onClick={() => setCancelModalBooking(event)}
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                            title="Cancel banquet booking (opens mandatory reason prompt and frees the date)"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            <span>Cancel</span>
+                          </button>
+                        )}
+
+                        {currentUser.permissions.canManageBookings && (
+                          <button
+                            type="button"
+                            onClick={() => setDeletingBookingId(event.id)}
+                            className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                            title="Delete this booking"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -3112,7 +3338,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                   {editingBooking ? 'Edit Banquet Booking & Costing' : 'Register Banquet Party & Costing Agreement'}
                 </h3>
                 <p className="text-xs text-[#5A6F66]">
-                  Select branch (CPH/Qasmia), hall offer (Free with Food, 1,500 Full, 1,000 One-Side), and chef notes
+                  Select branch (CPH1 / CPH2), hall offer (Free with Food, 1,500 Full, 1,000 One-Side), and chef notes
                 </p>
               </div>
               <button
@@ -3126,7 +3352,7 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
             <form onSubmit={handleSubmitForm} className="p-6 space-y-6">
               
               {/* Branch Selection & Hall Venue */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-[#F6FAF8] rounded-2xl border border-[#E2ECE7]">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-[#F6FAF8] rounded-2xl border border-[#E2ECE7]">
                 <div>
                   <label className="block text-xs font-bold text-[#192A24] mb-1.5">Hotel Branch *</label>
                   <select
@@ -3134,11 +3360,32 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                     onChange={(e) => setFormBranch(e.target.value as HotelBranch)}
                     className="w-full bg-white border border-[#D5E5DE] rounded-xl px-3 py-2 text-xs text-[#192A24] font-semibold focus:outline-none focus:border-[#236B50]"
                   >
-                    <option value="Crystal Plaza (CPH)">Crystal Plaza (CPH) — Flagship</option>
-                    <option value="Qasmia (Casmia CPH)">Qasmia (Casmia CPH)</option>
-                    <option value="CPH 9 (Crystal Plaza)">CPH 9 (Crystal Plaza)</option>
-                    <option value="Najas CPH">Najas CPH</option>
+                    <option value="CPH1">CPH1</option>
+                    <option value="CPH2">CPH2</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#192A24] mb-1.5">Banquet Hall *</label>
+                  <select
+                    value={formHallId}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setFormHallId(nextId);
+                      const chosen = halls.find(h => h.id === nextId);
+                      if (chosen) {
+                        setFormVenueFloor(chosen.name);
+                      }
+                    }}
+                    className="w-full bg-white border border-[#D5E5DE] rounded-xl px-3 py-2 text-xs text-[#192A24] font-semibold focus:outline-none focus:border-[#236B50]"
+                  >
+                    {halls.map(h => (
+                      <option key={h.id} value={h.id}>
+                        {h.name} (Up to {h.capacityMax} Guests)
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-[#5A6F66] mt-1 block">2 active halls: First Floor Big Hall &amp; Suite room Hall</span>
                 </div>
 
                 <div>
@@ -3148,11 +3395,10 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                     list="cph-venue-suggestions"
                     value={formVenueFloor}
                     onChange={(e) => setFormVenueFloor(e.target.value)}
-                    placeholder="e.g. 1st Floor Banquet Hall"
+                    placeholder="e.g. First Floor Big Hall"
                     className="w-full bg-white border border-[#D5E5DE] rounded-xl px-3 py-2 text-xs text-[#192A24] font-semibold focus:outline-none focus:border-[#236B50]"
                   />
                   <datalist id="cph-venue-suggestions">
-                    <option value="1st Floor Banquet Hall" />
                     {halls.map(h => (
                       <option key={h.id} value={h.name} />
                     ))}
@@ -3369,19 +3615,29 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
 
                   <div>
                     <label className="block text-xs font-semibold text-[#192A24] mb-1">
-                      Total Guest Count * <span className="text-[#236B50] font-bold">(Min 30)</span>
+                      Total Guest Count * <span className="text-[#236B50] font-bold">(Min 30 • Max {selectedHall?.capacityMax || 350})</span>
                     </label>
                     <input
                       type="number"
                       required
                       min={1}
+                      max={selectedHall?.capacityMax || 350}
                       value={formGuestCount}
-                      onChange={(e) => setFormGuestCount(parseInt(e.target.value) || 0)}
-                      className="w-full bg-white border border-[#D5E5DE] rounded-xl px-3 py-2 text-xs text-[#192A24] focus:outline-none focus:border-[#236B50]"
+                      onChange={(e) => setFormGuestCount(parseInt(e.target.value, 10) || 0)}
+                      className={`w-full bg-white border rounded-xl px-3 py-2 text-xs text-[#192A24] focus:outline-none ${
+                        !isMaxHallCapacityValid
+                          ? 'border-rose-400 focus:border-rose-600'
+                          : 'border-[#D5E5DE] focus:border-[#236B50]'
+                      }`}
                     />
                     {!isMinGuestsValid && (
                       <span className="text-[10px] text-amber-700 font-bold mt-1 block">
-                        ⚠️ Note: Policy is minimum 30 guests for party celebrations!
+                        Note: Policy is minimum 30 guests for party celebrations.
+                      </span>
+                    )}
+                    {!isMaxHallCapacityValid && selectedHall && (
+                      <span className="text-[10px] text-rose-700 font-bold mt-1 block">
+                        Exceeds {selectedHall.name} capacity (max {selectedHall.capacityMax} guests).
                       </span>
                     )}
                   </div>
@@ -3408,6 +3664,11 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                       onChange={(e) => setFormKidsCount(e.target.value)}
                       className="w-full bg-white border border-[#D5E5DE] rounded-xl px-3 py-2 text-xs text-[#192A24] focus:outline-none focus:border-[#236B50]"
                     />
+                    {!isGuestSplitValid && (
+                      <span className="text-[10px] text-rose-700 font-bold mt-1 block">
+                        Adults + Kids exceeds Total Guest Count ({formGuestCount}).
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4066,11 +4327,29 @@ export const BookingsManager: React.FC<BookingsManagerProps> = ({
                 )}
               </div>
 
+              {/* Inline Form Validation Errors Banner */}
+              {formValidationErrors.length > 0 && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-900 space-y-1.5 text-xs">
+                  <div className="font-extrabold flex items-center space-x-1.5">
+                    <ShieldAlert className="w-4 h-4 text-rose-700 shrink-0" />
+                    <span>Please fix the following before saving ({formValidationErrors.length}):</span>
+                  </div>
+                  <ul className="list-disc pl-5 space-y-0.5 text-[11px] font-medium">
+                    {formValidationErrors.map((err, idx) => (
+                      <li key={idx}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Form Buttons */}
               <div className="flex justify-end space-x-3 pt-3 border-t border-[#E2ECE7]">
                 <button
                   type="button"
-                  onClick={() => setBookingModalOpen(false)}
+                  onClick={() => {
+                    setFormValidationErrors([]);
+                    setBookingModalOpen(false);
+                  }}
                   className="px-5 py-2.5 bg-[#EBF3EF] hover:bg-[#DEEBE5] text-[#284B3D] text-xs font-bold rounded-full transition-colors cursor-pointer"
                 >
                   Cancel
